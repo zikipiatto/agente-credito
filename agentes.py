@@ -499,6 +499,47 @@ def _calcular_score_cuantitativo(kyc: dict, fin: dict, buro: dict, ab: dict, ml:
     return score_redondeado, desglose
 
 
+_JERARQUIA = {"APROBADO": 0, "VALIDACION": 1, "ESCALAR_EJECUTIVO": 2, "RECHAZADO": 3}
+
+def _decision_minima(kyc: dict, fin: dict, buro: dict, ab: dict, score: int, ml: dict | None = None) -> str:
+    """
+    Reglas deterministas que definen la decisión mínima obligatoria.
+    El LLM puede igualar o escalar, pero no puede ser más benévolo que esto.
+    """
+    decil       = (ml or {}).get("valor_decil")
+    decision_ml = (ml or {}).get("decision_ml", "") or ""
+    peor_mop    = ab.get("peor_mop_historico", 0)
+
+    # ── RECHAZADO: condiciones inapelables ──
+    if (buro.get("tiene_juicios")
+            or buro.get("creditos_vencidos", 0) > 0
+            or buro.get("reporte_incompleto")
+            or score <= 2):
+        return "RECHAZADO"
+
+    # ── ESCALAR_EJECUTIVO: señales graves ──
+    if (not kyc["aprobado"]
+            or not fin["aprobado"]
+            or peor_mop >= 5
+            or (decil is not None and decil <= 2)
+            or score <= 3):
+        return "ESCALAR_EJECUTIVO"
+
+    # ── VALIDACION: borderline o ML pide validación ──
+    ml_pide_validar = "validar" in decision_ml.lower()
+    if (score <= 5
+            or ml_pide_validar
+            or ab.get("nivel_endeudamiento") == "alto"
+            or peor_mop >= 3):
+        return "VALIDACION"
+
+    # Score 6: revisión ligera
+    if score == 6:
+        return "VALIDACION"
+
+    return "APROBADO"
+
+
 PROMPT_DECISION = PromptTemplate(
     input_variables=["resumen"],
     template="""Eres un motor de decisión crediticia para una SOFIPO en México.
@@ -508,22 +549,22 @@ Analiza la solicitud y responde SOLO un objeto JSON con estos campos:
 - justificacion_ajuste: texto muy breve explicando el ajuste cualitativo
 - razon_principal: texto breve explicando la decision
 - condiciones: texto con condiciones si aplica, o null
-- recomendacion_ejecutivo: texto si es ESCALAR_EJECUTIVO, o null
+- recomendacion_ejecutivo: texto breve si es ESCALAR_EJECUTIVO o VALIDACION, o null
 
-Reglas para decision (en orden de gravedad):
-- RECHAZADO si hay juicios activos, creditos vencidos, score muy bajo (<400) o reporte incompleto de buro
-- ESCALAR_EJECUTIVO si hay alertas graves, historial con atrasos severos (MOP>=5), capacidad de pago muy justa o decil ML muy bajo (1-2)
-- VALIDACION si hay alertas menores, datos faltantes, primer credito o situacion borderline que requiere revision rapida
-- APROBADO solo si KYC, finanzas y buro estan todos aprobados sin alertas criticas y el perfil es claro
+Reglas para decision — IMPORTANTE: el score cuantitativo y la decision minima del sistema ya reflejan los datos duros; tu decision NO puede ser mas benigna que la decision minima indicada abajo.
+- RECHAZADO si hay juicios activos, creditos vencidos, reporte incompleto o score <=2
+- ESCALAR_EJECUTIVO si KYC o finanzas rechazados, MOP historico >=5, decil ML <=2, o score <=3
+- VALIDACION si score 4-6, decision ML indica "Validar con mesa de credito", endeudamiento alto, o situacion borderline
+- APROBADO solo si score >=7, todos los agentes aprobados, sin alertas criticas, y la decision ML (si existe) es "Aceptada"
 
 Reglas para ajuste_cualitativo:
-- Usa -1 si el historial cualitativo es notablemente positivo (larga trayectoria, comportamiento ejemplar)
-- Usa +1 si hay señales cualitativas de riesgo adicional (tendencia negativa reciente, endeudamiento creciente)
+- Usa +1 si el historial cualitativo es notablemente positivo (larga trayectoria, comportamiento ejemplar, bajo endeudamiento)
+- Usa -1 si hay senales cualitativas de riesgo adicional (tendencia negativa reciente, endeudamiento creciente, negocio de alto riesgo)
 - Usa 0 en cualquier otro caso
 
-Reglas para condiciones (IMPORTANTE, no dejar null si aplica):
-- Si APROBADO: especifica monto maximo recomendado, plazo sugerido o garantias si aplica
-- Si ESCALAR_EJECUTIVO: lista los puntos especificos que debe revisar el ejecutivo
+Reglas para condiciones (no dejar null si aplica):
+- Si APROBADO: especifica monto maximo recomendado, plazo o garantias si aplica
+- Si VALIDACION o ESCALAR_EJECUTIVO: lista los puntos especificos a revisar
 - Si RECHAZADO: explica que condiciones tendria que cumplir para reconsiderar
 
 Solicitud a analizar:
@@ -542,6 +583,8 @@ def agente_decision(estado: EstadoSolicitud) -> EstadoSolicitud:
     # ── Score cuantitativo (determinista) ──
     ml = s.get("modelo_ml") or {}
     score_cuant, desglose = _calcular_score_cuantitativo(kyc, fin, buro, ab, ml)
+
+    dec_minima = _decision_minima(kyc, fin, buro, ab, score_cuant, ml)
 
     resumen = f"""
 CONDICIONES DEL CRÉDITO:
@@ -588,13 +631,15 @@ MODELO PREDICTIVO ML:
 
 SCORE CUANTITATIVO CALCULADO: {score_cuant}/10
 ({' + '.join(f"{k}={v}×{desglose['pesos'][k]}" for k,v in desglose.items() if k not in ('pesos','tiene_ml') and v is not None)})
+
+DECISION MINIMA OBLIGATORIA (no puedes dar una decision mas benigna que esta): {dec_minima}
 """
 
     chain = PROMPT_DECISION | llm
     respuesta = chain.invoke({"resumen": resumen})
 
     llm_result = _parsear_json(respuesta, fallback={
-        "decision": "ESCALAR_EJECUTIVO",
+        "decision": dec_minima,
         "ajuste_cualitativo": 0,
         "justificacion_ajuste": "No se pudo generar análisis cualitativo",
         "razon_principal": "No se pudo generar decisión automática — revisión manual requerida",
@@ -611,8 +656,19 @@ SCORE CUANTITATIVO CALCULADO: {score_cuant}/10
 
     score_final = max(1, min(10, score_cuant + ajuste))
 
+    # ── Guardrail: la decisión no puede ser más benévola que la mínima determinista ──
+    decision_llm = llm_result.get("decision", dec_minima)
+    if decision_llm not in _JERARQUIA:
+        decision_llm = dec_minima
+    decision_efectiva = (
+        decision_llm
+        if _JERARQUIA[decision_llm] >= _JERARQUIA[dec_minima]
+        else dec_minima
+    )
+
     estado["decision_final"] = {
         **llm_result,
+        "decision":             decision_efectiva,
         "score_riesgo":         score_final,
         "score_cuantitativo":   score_cuant,
         "ajuste_cualitativo":   ajuste,
