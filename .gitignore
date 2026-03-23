@@ -21,6 +21,9 @@ auditoria.jsonl
 .env
 .env.*
 
+# Ejemplos con datos sensibles
+Ejemplos Solicitud y Buro/
+
 # macOS
 .DS_Store
 .AppleDouble
