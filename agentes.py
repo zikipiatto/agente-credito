@@ -825,7 +825,7 @@ Score de riesgo:      {decision['score_riesgo']}/10
 Razón:                {decision['razon_principal']}
 Condiciones:          {decision['condiciones'] or 'Sin condiciones adicionales'}
 
-{'ACCIÓN PARA EJECUTIVO: ' + decision.get('recomendacion_ejecutivo', '') if decision['decision'] == 'ESCALAR_EJECUTIVO' else ''}
+{('ACCIÓN PARA EJECUTIVO: ' + (decision.get('recomendacion_ejecutivo') or '')) if decision['decision'] in ('ESCALAR_EJECUTIVO', 'VALIDACION') and decision.get('recomendacion_ejecutivo') else ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️  DECISIÓN SUJETA A VALIDACIÓN Y FIRMA DE EJECUTIVO
