@@ -518,6 +518,45 @@
       </label>
     </div>
 
+    <!-- Modelo Predictivo ML -->
+    <div class="buro-section">
+      <h3>Resultado del Modelo Predictivo (opcional)</h3>
+      <div style="background:#f0f4ff;border-radius:8px;padding:16px;margin-bottom:8px;">
+        <div class="form-grid" style="margin-bottom:12px;">
+          <div class="field"><label>Valor del Decil (1-10)</label>
+            <input id="ml_decil" type="number" min="1" max="10" placeholder="7" oninput="actualizarSemaforoML()">
+          </div>
+          <div class="field"><label>Decisión ML</label>
+            <select id="ml_decision">
+              <option value="">— Sin dato —</option>
+              <option>Aceptada</option>
+              <option>Validar con mesa de crédito</option>
+              <option>Rechazada</option>
+            </select>
+          </div>
+          <div class="field"><label>Capacidad de pago ML ($)</label>
+            <input id="ml_cap_pago" type="number" placeholder="445">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Fico Score (-10 = sin hit)</label>
+            <input id="ml_fico" type="number" placeholder="-10">
+          </div>
+          <div class="field"><label>Score No Hit (-10 = sin hit)</label>
+            <input id="ml_no_hit" type="number" placeholder="-10">
+          </div>
+          <div class="field"><label>VaNoHi (-10 = sin hit)</label>
+            <input id="ml_va_no_hi" type="number" placeholder="-10">
+          </div>
+        </div>
+        <div id="ml-semaforo" style="margin-top:12px;display:none;align-items:center;gap:12px;">
+          <span style="font-size:13px;font-weight:500;">Nivel de riesgo:</span>
+          <span id="ml-semaforo-color" style="font-size:22px;"></span>
+          <span id="ml-semaforo-texto" style="font-size:14px;font-weight:bold;"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- Cuentas -->
     <div class="buro-section">
       <h3>Detalle de cuentas</h3>
@@ -637,6 +676,34 @@ function recopilarCuentas() {
   return cuentas;
 }
 
+function actualizarSemaforoML() {
+  const decil = parseInt(document.getElementById('ml_decil').value);
+  const box = document.getElementById('ml-semaforo');
+  if (!decil || decil < 1 || decil > 10) { box.style.display='none'; return; }
+  box.style.display = 'flex';
+  const nivel = decil >= 7 ? 'BAJO' : decil >= 4 ? 'MEDIO' : 'ALTO';
+  const color = decil >= 7 ? '🟢' : decil >= 4 ? '🟡' : '🔴';
+  const colorTexto = decil >= 7 ? '#1e7e34' : decil >= 4 ? '#e65100' : '#c62828';
+  document.getElementById('ml-semaforo-color').textContent = color;
+  document.getElementById('ml-semaforo-texto').textContent = nivel;
+  document.getElementById('ml-semaforo-texto').style.color = colorTexto;
+}
+
+function recopilarML() {
+  const decil = parseInt(document.getElementById('ml_decil').value);
+  if (!decil) return null;
+  const nivel = decil >= 7 ? 'BAJO' : decil >= 4 ? 'MEDIO' : 'ALTO';
+  return {
+    valor_decil:       decil,
+    nivel_riesgo:      nivel,
+    decision_ml:       document.getElementById('ml_decision').value || null,
+    capacidad_pago_ml: parseFloat(document.getElementById('ml_cap_pago').value) || null,
+    fico_score:        parseFloat(document.getElementById('ml_fico').value) || null,
+    score_no_hit:      parseFloat(document.getElementById('ml_no_hit').value) || null,
+    va_no_hi:          parseFloat(document.getElementById('ml_va_no_hi').value) || null,
+  };
+}
+
 function parseCausas(str) {
   return str.split(',').map(s=>s.trim()).filter(s=>s.length>0);
 }
@@ -708,7 +775,8 @@ async function enviarSolicitud() {
       saldo_vencido: parseFloat(document.getElementById('saldo_vencido').value) || 0,
       etiqueta_riesgo: null,
       cuentas: recopilarCuentas()
-    }
+    },
+    modelo_ml: recopilarML()
   };
 
   try {
@@ -745,6 +813,12 @@ function mostrarResultado(data) {
 
   const decisionClass = d.resultado;
   const decisionIcon = {'APROBADO':'✅','RECHAZADO':'❌','ESCALAR_EJECUTIVO':'⚠️'}[d.resultado] || '❓';
+
+  const ml = data.modelo_ml || {};
+  const mlDecil = ml.valor_decil;
+  const mlNivel = ml.nivel_riesgo || (mlDecil>=7?'BAJO':mlDecil>=4?'MEDIO':'ALTO');
+  const mlColor = mlNivel==='BAJO'?'#34a853':mlNivel==='MEDIO'?'#fb8c00':'#ea4335';
+  const mlSemaforo = mlNivel==='BAJO'?'🟢':mlNivel==='MEDIO'?'🟡':'🔴';
 
   const cuentasHTML = (ab.detalle_cuentas || []).map(c => `
     <tr>
@@ -826,6 +900,33 @@ function mostrarResultado(data) {
         ${(buro.alertas||[]).map(a=>`<div class="alert-item">⚠ ${a}</div>`).join('')}
       </div>
     </div>
+
+    <!-- Tarjeta Modelo ML -->
+    ${mlDecil ? `
+    <div style="background:#f0f4ff;border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid ${mlColor};">
+      <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:10px;">🤖 MODELO PREDICTIVO ML</div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div style="text-align:center;">
+          <div style="font-size:36px;">${mlSemaforo}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px;">Nivel de riesgo</div>
+          <div style="font-size:14px;font-weight:bold;color:${mlColor};">${mlNivel}</div>
+        </div>
+        <div style="flex:1;min-width:180px;">
+          <div style="font-size:22px;font-weight:bold;color:${mlColor};">Decil ${mlDecil}/10</div>
+          <div style="font-size:11px;color:#888;margin-bottom:8px;">Mayor decil = mejor perfil</div>
+          ${ml.decision_ml?`<div style="font-size:13px;"><strong>Decisión ML:</strong> <span style="color:${ml.decision_ml==='Aceptada'?'#1e7e34':'#e65100'}">${ml.decision_ml}</span></div>`:''}
+          ${ml.capacidad_pago_ml?`<div style="font-size:13px;"><strong>Cap. pago ML:</strong> $${ml.capacidad_pago_ml.toLocaleString('es-MX')}</div>`:''}
+        </div>
+        <div style="font-size:12px;color:#555;min-width:160px;">
+          <div>Fico Score: <strong>${ml.fico_score===-10||ml.fico_score===null?'Sin hit':ml.fico_score}</strong></div>
+          <div>Score No Hit: <strong>${ml.score_no_hit===-10||ml.score_no_hit===null?'Sin hit':ml.score_no_hit}</strong></div>
+          <div>VaNoHi: <strong>${ml.va_no_hi===-10||ml.va_no_hi===null?'Sin hit':ml.va_no_hi}</strong></div>
+        </div>
+      </div>
+    </div>` : `
+    <div style="background:#f8f9fa;border-radius:8px;padding:12px 16px;margin-bottom:20px;border-left:4px solid #ccc;font-size:13px;color:#888;">
+      🤖 <strong>Modelo Predictivo ML:</strong> No disponible — el score se calculó con 4 factores (sin decil)
+    </div>`}
 
     <!-- Recomendación para el ejecutivo -->
     <div style="border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid ${
@@ -1034,6 +1135,15 @@ function cargarDemo() {
     document.getElementById(`c${n}_puntuales`).value = c.puntuales || 0;
     document.getElementById(`c${n}_atrasados`).value = c.atrasados || 0;
   });
+
+  // Modelo ML demo
+  document.getElementById('ml_decil').value = '7';
+  document.getElementById('ml_decision').value = 'Aceptada';
+  document.getElementById('ml_cap_pago').value = '445';
+  document.getElementById('ml_fico').value = '661';
+  document.getElementById('ml_no_hit').value = '-10';
+  document.getElementById('ml_va_no_hi').value = '-10';
+  actualizarSemaforoML();
 
   document.getElementById('num-solicitud-display').textContent = '47465130';
   alert('✅ Datos de demo cargados — Cristel Martinez Marquez');

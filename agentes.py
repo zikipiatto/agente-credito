@@ -406,9 +406,16 @@ Detalle cuentas abiertas:
 # AGENTE 4: Decisión Final (con Ollama)
 # ─────────────────────────────────────────
 
-def _calcular_score_cuantitativo(kyc: dict, fin: dict, buro: dict, ab: dict) -> tuple[int, dict]:
+def _nivel_riesgo_decil(decil: int) -> str:
+    if decil >= 7:   return "BAJO"
+    elif decil >= 4: return "MEDIO"
+    else:            return "ALTO"
+
+
+def _calcular_score_cuantitativo(kyc: dict, fin: dict, buro: dict, ab: dict, ml: dict | None = None) -> tuple[int, dict]:
     """
-    Calcula el score de riesgo cuantitativo (1-10) con 4 factores ponderados.
+    Calcula el score de riesgo cuantitativo (1-10) con 4 ó 5 factores ponderados.
+    Si hay resultado del modelo ML (decil), se incorpora como 5° factor.
     Retorna (score, desglose).
     """
     score_buro = buro.get("score")
@@ -461,15 +468,33 @@ def _calcular_score_cuantitativo(kyc: dict, fin: dict, buro: dict, ab: dict) -> 
     elif alertas_hawk:                                f_riesgo = 8
     else:                                             f_riesgo = 10
 
-    score = f_buro * 0.35 + f_ci * 0.25 + f_kyc * 0.20 + f_riesgo * 0.20
+    # ── Factor 5: Decil del modelo ML (cuando está disponible) ──
+    decil = ml.get("valor_decil") if ml else None
+    tiene_ml = decil is not None and isinstance(decil, int) and 1 <= decil <= 10
+
+    if tiene_ml:
+        f_ml = decil  # ya está en escala 1-10 donde 10=mejor
+        # Con ML: ajustar pesos para dar 20% al modelo
+        score = (f_buro * 0.28 + f_ci * 0.22 + f_kyc * 0.15 +
+                 f_riesgo * 0.15 + f_ml * 0.20)
+        pesos = {"score_buro": "28%", "cuota_ingreso": "22%",
+                 "kyc_biometrico": "15%", "senales_riesgo": "15%", "modelo_ml": "20%"}
+    else:
+        f_ml = None
+        score = f_buro * 0.35 + f_ci * 0.25 + f_kyc * 0.20 + f_riesgo * 0.20
+        pesos = {"score_buro": "35%", "cuota_ingreso": "25%",
+                 "kyc_biometrico": "20%", "senales_riesgo": "20%"}
+
     score_redondeado = max(1, min(10, round(score)))
 
     desglose = {
-        "score_buro":        f_buro,
-        "cuota_ingreso":     f_ci,
-        "kyc_biometrico":    f_kyc,
-        "senales_riesgo":    f_riesgo,
-        "pesos":             {"score_buro": "35%", "cuota_ingreso": "25%", "kyc_biometrico": "20%", "senales_riesgo": "20%"},
+        "score_buro":     f_buro,
+        "cuota_ingreso":  f_ci,
+        "kyc_biometrico": f_kyc,
+        "senales_riesgo": f_riesgo,
+        "modelo_ml":      f_ml,
+        "tiene_ml":       tiene_ml,
+        "pesos":          pesos,
     }
     return score_redondeado, desglose
 
@@ -514,7 +539,8 @@ def agente_decision(estado: EstadoSolicitud) -> EstadoSolicitud:
     ab = estado["analisis_buro"]
 
     # ── Score cuantitativo (determinista) ──
-    score_cuant, desglose = _calcular_score_cuantitativo(kyc, fin, buro, ab)
+    ml = s.get("modelo_ml") or {}
+    score_cuant, desglose = _calcular_score_cuantitativo(kyc, fin, buro, ab, ml)
 
     resumen = f"""
 CONDICIONES DEL CRÉDITO:
@@ -556,8 +582,11 @@ ANÁLISIS PROFUNDO DE BURÓ:
 - Áreas de oportunidad: {ab.get('areas_oportunidad',[])}
 - Recomendación sobre monto: {ab.get('recomendacion_monto','')}
 
+MODELO PREDICTIVO ML:
+{f"- Decil: {ml.get('valor_decil')}/10 (mayor = mejor cliente) | Nivel de riesgo: {ml.get('nivel_riesgo','N/D')} | Decisión ML: {ml.get('decision_ml','N/D')} | Cap. pago ML: ${ml.get('capacidad_pago_ml') or 0:,.2f}" if ml and ml.get('valor_decil') else "- No disponible (se usaron 4 factores sin ML)"}
+
 SCORE CUANTITATIVO CALCULADO: {score_cuant}/10
-(buró={desglose['score_buro']}×35% + cuota/ingreso={desglose['cuota_ingreso']}×25% + KYC={desglose['kyc_biometrico']}×20% + señales={desglose['senales_riesgo']}×20%)
+({' + '.join(f"{k}={v}×{desglose['pesos'][k]}" for k,v in desglose.items() if k not in ('pesos','tiene_ml') and v is not None)})
 """
 
     chain = PROMPT_DECISION | llm
@@ -645,6 +674,25 @@ RESULTADOS POR AGENTE
     Reporte:          {'⚠️ INCOMPLETO — score no confiable' if buro.get('reporte_incompleto') else '✅ Completo'}
     Causas score:     {', '.join(buro.get('causas_score',[])) or 'No especificadas'}
     Alertas:          {', '.join(buro['alertas']) if buro['alertas'] else 'Ninguna'}
+
+  MODELO PREDICTIVO ML"""
+
+    ml_data = s.get("modelo_ml") or {}
+    if ml_data and ml_data.get("valor_decil") is not None:
+        decil = ml_data["valor_decil"]
+        nivel = ml_data.get("nivel_riesgo") or _nivel_riesgo_decil(decil)
+        semaforo = "🟢" if nivel == "BAJO" else ("🟡" if nivel == "MEDIO" else "🔴")
+        expediente += f"""
+    Decil:            {semaforo} {decil}/10 — Nivel de riesgo: {nivel}
+    Decisión ML:      {ml_data.get('decision_ml','N/D')}
+    Capacidad pago:   ${ml_data.get('capacidad_pago_ml') or 0:,.2f}
+    Fico Score:       {ml_data.get('fico_score') if ml_data.get('fico_score') != -10 else 'Sin hit (-10)'}
+    Score No Hit:     {ml_data.get('score_no_hit') if ml_data.get('score_no_hit') != -10 else 'Sin hit (-10)'}
+    VaNoHi:           {ml_data.get('va_no_hi') if ml_data.get('va_no_hi') != -10 else 'Sin hit (-10)'}"""
+    else:
+        expediente += "\n    No disponible"
+
+    expediente += f"""
 
   MÉTRICAS DE BURÓ
     Cuentas reportadas:   {ab.get('total_cuentas_reportadas', ab.get('total_cuentas',0))} ({ab.get('cuentas_abiertas',0)} abiertas / {ab.get('cuentas_cerradas',0)} cerradas)

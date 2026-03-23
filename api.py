@@ -52,6 +52,18 @@ def analizar_solicitud(solicitud: SolicitudCompleta):
                 "frecuencia": solicitud.condiciones.frecuencia,
             },
 
+            # ── Resultado Modelo ML ──
+            "modelo_ml": {
+                "disponible":        solicitud.modelo_ml is not None,
+                "valor_decil":       solicitud.modelo_ml.valor_decil       if solicitud.modelo_ml else None,
+                "nivel_riesgo":      solicitud.modelo_ml.nivel_riesgo      if solicitud.modelo_ml else None,
+                "decision_ml":       solicitud.modelo_ml.decision_ml       if solicitud.modelo_ml else None,
+                "capacidad_pago_ml": solicitud.modelo_ml.capacidad_pago_ml if solicitud.modelo_ml else None,
+                "fico_score":        solicitud.modelo_ml.fico_score        if solicitud.modelo_ml else None,
+                "score_no_hit":      solicitud.modelo_ml.score_no_hit      if solicitud.modelo_ml else None,
+                "va_no_hi":          solicitud.modelo_ml.va_no_hi          if solicitud.modelo_ml else None,
+            },
+
             # ── Resultado KYC ──
             "kyc": {
                 "aprobado": resultado["resultado_kyc"]["aprobado"],

@@ -71,6 +71,15 @@ class Buro(BaseModel):
     saldo_vencido: float = 0.0
     cuentas: list[CuentaBuro] = []    # detalle de todas las cuentas
 
+class ResultadoML(BaseModel):
+    fico_score: Optional[float] = None      # -10 = sin hit
+    score_no_hit: Optional[float] = None    # -10 = sin hit
+    va_no_hi: Optional[float] = None        # -10 = sin hit
+    decision_ml: Optional[str] = None       # Aceptada / Validar con mesa de crédito
+    capacidad_pago_ml: Optional[float] = None
+    valor_decil: Optional[int] = None       # 1-10, donde 10 = mejor cliente
+    nivel_riesgo: Optional[str] = None      # ALTO / MEDIO / BAJO (derivado del decil)
+
 class SolicitudCompleta(BaseModel):
     condiciones: Condiciones
     identificacion: Identificacion
@@ -78,3 +87,4 @@ class SolicitudCompleta(BaseModel):
     negocio: Negocio
     finanzas: IngresosEgresos
     buro: Buro
+    modelo_ml: Optional[ResultadoML] = None  # resultado del modelo predictivo (opcional)
