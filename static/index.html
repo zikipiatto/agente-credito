@@ -196,6 +196,7 @@
   }
   .APROBADO { background: #e6f4ea; color: #1e7e34; border: 2px solid #34a853; }
   .RECHAZADO { background: #fce8e6; color: #c62828; border: 2px solid #ea4335; }
+  .VALIDACION { background: #fffde7; color: #f9a825; border: 2px solid #fdd835; }
   .ESCALAR_EJECUTIVO { background: #fff3e0; color: #e65100; border: 2px solid #fb8c00; }
 
   .resultado-grid {
@@ -812,7 +813,7 @@ function mostrarResultado(data) {
   const ab = data.analisis_buro;
 
   const decisionClass = d.resultado;
-  const decisionIcon = {'APROBADO':'✅','RECHAZADO':'❌','ESCALAR_EJECUTIVO':'⚠️'}[d.resultado] || '❓';
+  const decisionIcon = {'APROBADO':'✅','RECHAZADO':'❌','ESCALAR_EJECUTIVO':'⚠️','VALIDACION':'🔔'}[d.resultado] || '❓';
 
   const ml = data.modelo_ml || {};
   const mlDecil = ml.valor_decil;
@@ -930,17 +931,17 @@ function mostrarResultado(data) {
 
     <!-- Recomendación para el ejecutivo -->
     <div style="border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid ${
-      d.resultado==='APROBADO'?'#34a853':d.resultado==='RECHAZADO'?'#ea4335':'#fb8c00'
+      d.resultado==='APROBADO'?'#34a853':d.resultado==='RECHAZADO'?'#ea4335':d.resultado==='VALIDACION'?'#fdd835':'#fb8c00'
     };background:${
-      d.resultado==='APROBADO'?'#f0faf3':d.resultado==='RECHAZADO'?'#fef6f5':'#fff8f0'
+      d.resultado==='APROBADO'?'#f0faf3':d.resultado==='RECHAZADO'?'#fef6f5':d.resultado==='VALIDACION'?'#fffde7':'#fff8f0'
     };">
       <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:10px;">
         📋 RECOMENDACIÓN DEL SISTEMA PARA EL EJECUTIVO
       </div>
       <div style="font-size:13px;color:#333;margin-bottom:8px;">
         <strong>Decisión sugerida:</strong>
-        <span style="font-weight:bold;color:${d.resultado==='APROBADO'?'#1e7e34':d.resultado==='RECHAZADO'?'#c62828':'#e65100'};">
-          ${d.resultado==='APROBADO'?'✅ Aprobar':d.resultado==='RECHAZADO'?'❌ Rechazar':'⚠️ Escalar para revisión'}
+        <span style="font-weight:bold;color:${d.resultado==='APROBADO'?'#1e7e34':d.resultado==='RECHAZADO'?'#c62828':d.resultado==='VALIDACION'?'#f9a825':'#e65100'};">
+          ${d.resultado==='APROBADO'?'✅ Aprobar':d.resultado==='RECHAZADO'?'❌ Rechazar':d.resultado==='VALIDACION'?'🔔 Validación manual':'⚠️ Escalar para revisión'}
         </span>
       </div>
       <div style="font-size:13px;color:#333;margin-bottom:${d.condiciones&&d.condiciones!=='Sin condiciones adicionales'?'8px':'0'};">
@@ -951,7 +952,7 @@ function mostrarResultado(data) {
         <strong>Condiciones / Acciones:</strong> ${d.condiciones}
       </div>`:''}
       ${d.recomendacion_ejecutivo?`
-      <div style="font-size:13px;color:#e65100;">
+      <div style="font-size:13px;color:${d.resultado==='VALIDACION'?'#f9a825':d.resultado==='RECHAZADO'?'#c62828':'#e65100'};">
         <strong>Puntos a revisar:</strong> ${d.recomendacion_ejecutivo}
       </div>`:''}
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.08);font-size:11px;color:#999;">

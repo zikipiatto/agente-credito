@@ -503,17 +503,18 @@ PROMPT_DECISION = PromptTemplate(
     input_variables=["resumen"],
     template="""Eres un motor de decisión crediticia para una SOFIPO en México.
 Analiza la solicitud y responde SOLO un objeto JSON con estos campos:
-- decision: una de estas tres opciones exactas: APROBADO, RECHAZADO, ESCALAR_EJECUTIVO
+- decision: una de estas cuatro opciones exactas: APROBADO, VALIDACION, ESCALAR_EJECUTIVO, RECHAZADO
 - ajuste_cualitativo: +1 (perfil mejor de lo esperado, sube score), 0 (sin ajuste), o -1 (señales de riesgo adicionales, baja score)
 - justificacion_ajuste: texto muy breve explicando el ajuste cualitativo
 - razon_principal: texto breve explicando la decision
 - condiciones: texto con condiciones si aplica, o null
 - recomendacion_ejecutivo: texto si es ESCALAR_EJECUTIVO, o null
 
-Reglas para decision:
-- RECHAZADO si hay juicios, creditos vencidos, score bajo o reporte incompleto
-- ESCALAR_EJECUTIVO si hay alertas menores, casos borderline o datos faltantes
-- APROBADO solo si KYC, finanzas y buro estan todos aprobados sin alertas criticas
+Reglas para decision (en orden de gravedad):
+- RECHAZADO si hay juicios activos, creditos vencidos, score muy bajo (<400) o reporte incompleto de buro
+- ESCALAR_EJECUTIVO si hay alertas graves, historial con atrasos severos (MOP>=5), capacidad de pago muy justa o decil ML muy bajo (1-2)
+- VALIDACION si hay alertas menores, datos faltantes, primer credito o situacion borderline que requiere revision rapida
+- APROBADO solo si KYC, finanzas y buro estan todos aprobados sin alertas criticas y el perfil es claro
 
 Reglas para ajuste_cualitativo:
 - Usa -1 si el historial cualitativo es notablemente positivo (larga trayectoria, comportamiento ejemplar)
