@@ -116,6 +116,10 @@ def analizar_solicitud(solicitud: SolicitudCompleta):
             "decision": {
                 "resultado":              resultado["decision_final"]["decision"],
                 "score_riesgo":           resultado["decision_final"]["score_riesgo"],
+                "score_cuantitativo":     resultado["decision_final"]["score_cuantitativo"],
+                "ajuste_cualitativo":     resultado["decision_final"]["ajuste_cualitativo"],
+                "justificacion_ajuste":   resultado["decision_final"]["justificacion_ajuste"],
+                "desglose_score":         resultado["decision_final"]["desglose_score"],
                 "razon_principal":        resultado["decision_final"]["razon_principal"],
                 "condiciones":            resultado["decision_final"].get("condiciones"),
                 "recomendacion_ejecutivo": resultado["decision_final"].get("recomendacion_ejecutivo"),

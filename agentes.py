@@ -405,12 +405,82 @@ Detalle cuentas abiertas:
 # ─────────────────────────────────────────
 # AGENTE 4: Decisión Final (con Ollama)
 # ─────────────────────────────────────────
+
+def _calcular_score_cuantitativo(kyc: dict, fin: dict, buro: dict, ab: dict) -> tuple[int, dict]:
+    """
+    Calcula el score de riesgo cuantitativo (1-10) con 4 factores ponderados.
+    Retorna (score, desglose).
+    """
+    score_buro = buro.get("score")
+    es_exclusion = score_buro is not None and int(score_buro) in [-8, -9]
+
+    # Escala: 10 = mejor perfil (menor riesgo) · 1 = peor perfil (mayor riesgo)
+
+    # ── Factor 1: Score de buró (35%) ──
+    if buro.get("tiene_juicios") or buro.get("creditos_vencidos", 0) > 0:
+        f_buro = 1
+    elif buro.get("reporte_incompleto"):
+        f_buro = 4
+    elif es_exclusion or score_buro is None:
+        f_buro = 5  # sin historial, neutral
+    elif score_buro < 400:  f_buro = 1
+    elif score_buro < 500:  f_buro = 3
+    elif score_buro < 580:  f_buro = 5
+    elif score_buro < 650:  f_buro = 7
+    elif score_buro < 720:  f_buro = 9
+    else:                   f_buro = 10
+
+    # ── Factor 2: Cuota / Ingreso (25%) ──
+    ratio = fin.get("ratio_cuota_ingreso", 0)
+    if   ratio > 60: f_ci = 1
+    elif ratio > 50: f_ci = 3
+    elif ratio > 40: f_ci = 5
+    elif ratio > 30: f_ci = 7
+    elif ratio > 20: f_ci = 9
+    else:            f_ci = 10
+
+    # ── Factor 3: KYC biométrico (20%) ──
+    bio = kyc.get("score_biometrico", 0)
+    if   bio < 50: f_kyc = 1
+    elif bio < 60: f_kyc = 4
+    elif bio < 70: f_kyc = 6
+    elif bio < 85: f_kyc = 8
+    else:          f_kyc = 10
+
+    # ── Factor 4: Señales de riesgo (20%) ──
+    alertas_hawk = [a for a in buro.get("alertas", []) if "HAWK" in a.upper()]
+    peor_mop = ab.get("peor_mop_historico", 0)
+    saldo_vencido = buro.get("saldo_vencido", 0) or ab.get("saldo_vencido", 0)
+
+    if buro.get("tiene_juicios"):                     f_riesgo = 1
+    elif buro.get("creditos_vencidos", 0) > 0:        f_riesgo = 2
+    elif saldo_vencido > 0:                           f_riesgo = 3
+    elif peor_mop >= 5:                               f_riesgo = 4
+    elif peor_mop >= 3:                               f_riesgo = 5
+    elif peor_mop >= 2:                               f_riesgo = 7
+    elif alertas_hawk:                                f_riesgo = 8
+    else:                                             f_riesgo = 10
+
+    score = f_buro * 0.35 + f_ci * 0.25 + f_kyc * 0.20 + f_riesgo * 0.20
+    score_redondeado = max(1, min(10, round(score)))
+
+    desglose = {
+        "score_buro":        f_buro,
+        "cuota_ingreso":     f_ci,
+        "kyc_biometrico":    f_kyc,
+        "senales_riesgo":    f_riesgo,
+        "pesos":             {"score_buro": "35%", "cuota_ingreso": "25%", "kyc_biometrico": "20%", "senales_riesgo": "20%"},
+    }
+    return score_redondeado, desglose
+
+
 PROMPT_DECISION = PromptTemplate(
     input_variables=["resumen"],
     template="""Eres un motor de decisión crediticia para una SOFIPO en México.
 Analiza la solicitud y responde SOLO un objeto JSON con estos campos:
 - decision: una de estas tres opciones exactas: APROBADO, RECHAZADO, ESCALAR_EJECUTIVO
-- score_riesgo: entero del 1 al 10 donde 10 es mayor riesgo
+- ajuste_cualitativo: +1 (perfil mejor de lo esperado, sube score), 0 (sin ajuste), o -1 (señales de riesgo adicionales, baja score)
+- justificacion_ajuste: texto muy breve explicando el ajuste cualitativo
 - razon_principal: texto breve explicando la decision
 - condiciones: texto con condiciones si aplica, o null
 - recomendacion_ejecutivo: texto si es ESCALAR_EJECUTIVO, o null
@@ -419,6 +489,11 @@ Reglas para decision:
 - RECHAZADO si hay juicios, creditos vencidos, score bajo o reporte incompleto
 - ESCALAR_EJECUTIVO si hay alertas menores, casos borderline o datos faltantes
 - APROBADO solo si KYC, finanzas y buro estan todos aprobados sin alertas criticas
+
+Reglas para ajuste_cualitativo:
+- Usa -1 si el historial cualitativo es notablemente positivo (larga trayectoria, comportamiento ejemplar)
+- Usa +1 si hay señales cualitativas de riesgo adicional (tendencia negativa reciente, endeudamiento creciente)
+- Usa 0 en cualquier otro caso
 
 Reglas para condiciones (IMPORTANTE, no dejar null si aplica):
 - Si APROBADO: especifica monto maximo recomendado, plazo sugerido o garantias si aplica
@@ -437,6 +512,9 @@ def agente_decision(estado: EstadoSolicitud) -> EstadoSolicitud:
     fin = estado["resultado_financiero"]
     buro = estado["resultado_buro"]
     ab = estado["analisis_buro"]
+
+    # ── Score cuantitativo (determinista) ──
+    score_cuant, desglose = _calcular_score_cuantitativo(kyc, fin, buro, ab)
 
     resumen = f"""
 CONDICIONES DEL CRÉDITO:
@@ -477,18 +555,40 @@ ANÁLISIS PROFUNDO DE BURÓ:
 - Fortalezas: {ab.get('fortalezas',[])}
 - Áreas de oportunidad: {ab.get('areas_oportunidad',[])}
 - Recomendación sobre monto: {ab.get('recomendacion_monto','')}
+
+SCORE CUANTITATIVO CALCULADO: {score_cuant}/10
+(buró={desglose['score_buro']}×35% + cuota/ingreso={desglose['cuota_ingreso']}×25% + KYC={desglose['kyc_biometrico']}×20% + señales={desglose['senales_riesgo']}×20%)
 """
 
     chain = PROMPT_DECISION | llm
     respuesta = chain.invoke({"resumen": resumen})
 
-    estado["decision_final"] = _parsear_json(respuesta, fallback={
+    llm_result = _parsear_json(respuesta, fallback={
         "decision": "ESCALAR_EJECUTIVO",
-        "score_riesgo": 5,
+        "ajuste_cualitativo": 0,
+        "justificacion_ajuste": "No se pudo generar análisis cualitativo",
         "razon_principal": "No se pudo generar decisión automática — revisión manual requerida",
         "condiciones": None,
         "recomendacion_ejecutivo": "Revisar expediente manualmente con el ejecutivo de crédito."
     })
+
+    # ── Ajuste cualitativo del LLM (acotado a -1, 0, +1) ──
+    ajuste = llm_result.get("ajuste_cualitativo", 0)
+    try:
+        ajuste = max(-1, min(1, int(ajuste)))
+    except (TypeError, ValueError):
+        ajuste = 0
+
+    score_final = max(1, min(10, score_cuant + ajuste))
+
+    estado["decision_final"] = {
+        **llm_result,
+        "score_riesgo":         score_final,
+        "score_cuantitativo":   score_cuant,
+        "ajuste_cualitativo":   ajuste,
+        "justificacion_ajuste": llm_result.get("justificacion_ajuste", ""),
+        "desglose_score":       desglose,
+    }
     return estado
 
 # ─────────────────────────────────────────
@@ -594,6 +694,29 @@ RESULTADOS POR AGENTE
 
 DECISIÓN DEL SISTEMA: {decision['decision']}
 Score de riesgo:      {decision['score_riesgo']}/10
+
+  DESGLOSE DEL SCORE
+  {'Factor':<22} {'Puntaje':>8} {'Peso':>6}   Interpretación
+  {'-'*65}"""
+
+    ds = decision.get('desglose_score', {})
+    labels = {
+        'score_buro':     ('Score de buró',      '35%'),
+        'cuota_ingreso':  ('Cuota / Ingreso',     '25%'),
+        'kyc_biometrico': ('KYC biométrico',      '20%'),
+        'senales_riesgo': ('Señales de riesgo',   '20%'),
+    }
+    for key, (nombre, peso) in labels.items():
+        val = ds.get(key, '-')
+        nivel = 'Bajo riesgo' if isinstance(val, int) and val >= 7 else ('Riesgo medio' if isinstance(val, int) and val >= 4 else 'Alto riesgo')
+        expediente += f"\n  {nombre:<22} {str(val)+'/10':>8} {peso:>6}   {nivel}"
+
+    expediente += f"""
+  {'-'*65}
+  Base cuantitativa:    {decision.get('score_cuantitativo','-')}/10
+  Ajuste cualitativo:   {'+' if (decision.get('ajuste_cualitativo',0) or 0) > 0 else ''}{decision.get('ajuste_cualitativo', 0)}  ({decision.get('justificacion_ajuste','Sin ajuste')})
+  Score final:          {decision['score_riesgo']}/10
+
 Razón:                {decision['razon_principal']}
 Condiciones:          {decision['condiciones'] or 'Sin condiciones adicionales'}
 

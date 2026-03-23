@@ -272,6 +272,51 @@
   .tag-warn { background: #fff3e0; color: #e65100; }
   .tag-ok { background: #e6f4ea; color: #1e7e34; }
   .tag-info { background: #e8f0fe; color: #1a73e8; }
+
+  .cuentas-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .header { padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
+    .header-logo { font-size: 16px; }
+    .solicitud-header { padding: 8px 14px; }
+    .solicitud-header h2 { font-size: 14px; }
+
+    .tabs { padding: 0 8px; overflow-x: auto; flex-wrap: nowrap; }
+    .tab { padding: 10px 12px; font-size: 12px; }
+
+    .content { margin: 12px auto; padding: 0 8px; }
+    .card { padding: 16px; }
+
+    .form-grid { grid-template-columns: 1fr !important; }
+    .form-grid-2 { grid-template-columns: 1fr !important; }
+    .form-grid-1 { grid-template-columns: 1fr; }
+
+    .score-grid { grid-template-columns: repeat(2, 1fr); }
+
+    .resultado-header { flex-direction: column; }
+    .resultado-grid { grid-template-columns: 1fr; }
+    .metricas-grid { grid-template-columns: repeat(2, 1fr); }
+
+    .cuenta-row {
+      grid-template-columns: 30px 1fr 90px 80px 90px 90px 80px 55px 55px 50px;
+      font-size: 11px;
+    }
+
+    .btn { padding: 10px 16px; font-size: 13px; }
+    .btn-success { padding: 12px 20px; font-size: 14px; }
+
+    .expediente-box { font-size: 10px; padding: 12px; }
+
+    .decision-badge { font-size: 15px; padding: 10px 16px; }
+  }
+
+  @media (max-width: 480px) {
+    .score-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metricas-grid { grid-template-columns: 1fr 1fr; }
+    .nav-buttons { flex-direction: column; gap: 10px; }
+    .nav-buttons .btn { width: 100%; text-align: center; }
+  }
 </style>
 </head>
 <body>
@@ -476,11 +521,13 @@
     <!-- Cuentas -->
     <div class="buro-section">
       <h3>Detalle de cuentas</h3>
+      <div class="cuentas-scroll">
       <div class="cuenta-row header">
         <div>#</div><div>Tipo</div><div>Otorgante</div><div>Estado</div>
         <div>Apertura</div><div>Crédito máx ($)</div><div>Saldo ($)</div><div>P.Puntual</div><div>P.Atraso</div><div></div>
       </div>
       <div id="cuentas-container"></div>
+      </div>
       <button class="btn-add" onclick="agregarCuenta()">+ Agregar cuenta</button>
     </div>
 
@@ -729,6 +776,32 @@ function mostrarResultado(data) {
       </div>
     </div>
 
+    <!-- Desglose del score de riesgo -->
+    ${d.desglose_score ? `
+    <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:12px;">DESGLOSE SCORE DE RIESGO</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
+        ${[
+          {lbl:'Score buró',       val:d.desglose_score.score_buro,     peso:'35%'},
+          {lbl:'Cuota / Ingreso',  val:d.desglose_score.cuota_ingreso,  peso:'25%'},
+          {lbl:'KYC biométrico',   val:d.desglose_score.kyc_biometrico, peso:'20%'},
+          {lbl:'Señales de riesgo',val:d.desglose_score.senales_riesgo, peso:'20%'},
+        ].map(f => `
+          <div style="background:#fff;border-radius:6px;padding:10px;border-left:3px solid ${f.val>=7?'#ea4335':f.val>=4?'#fb8c00':'#34a853'};">
+            <div style="font-size:10px;color:#888;">${f.lbl} <span style="color:#1a73e8;">(${f.peso})</span></div>
+            <div style="font-size:20px;font-weight:bold;color:${f.val>=7?'#ea4335':f.val>=4?'#fb8c00':'#34a853'};">${f.val}/10</div>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;font-size:12px;flex-wrap:wrap;">
+        <span>Base cuantitativa: <strong>${d.score_cuantitativo}/10</strong></span>
+        <span style="color:${d.ajuste_cualitativo>0?'#34a853':d.ajuste_cualitativo<0?'#ea4335':'#888'};">
+          Ajuste IA: <strong>${d.ajuste_cualitativo>0?'+'+d.ajuste_cualitativo:d.ajuste_cualitativo}</strong>
+        </span>
+        <span style="color:#1a73e8;">→ Score final: <strong>${d.score_riesgo}/10</strong></span>
+        ${d.justificacion_ajuste ? `<span style="color:#666;font-style:italic;">"${d.justificacion_ajuste}"</span>` : ''}
+      </div>
+    </div>` : ''}
+
     <div class="resultado-grid">
       <div class="resultado-card ${kyc.aprobado?'ok':'fail'}">
         <h4>KYC / Identificación</h4>
@@ -751,6 +824,37 @@ function mostrarResultado(data) {
         <div class="detail">Cuentas: ${buro.total_cuentas} (${buro.cuentas_abiertas} abiertas)</div>
         ${buro.reporte_incompleto?'<div class="alert-item">⚠ Reporte incompleto</div>':''}
         ${(buro.alertas||[]).map(a=>`<div class="alert-item">⚠ ${a}</div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Recomendación para el ejecutivo -->
+    <div style="border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid ${
+      d.resultado==='APROBADO'?'#34a853':d.resultado==='RECHAZADO'?'#ea4335':'#fb8c00'
+    };background:${
+      d.resultado==='APROBADO'?'#f0faf3':d.resultado==='RECHAZADO'?'#fef6f5':'#fff8f0'
+    };">
+      <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:10px;">
+        📋 RECOMENDACIÓN DEL SISTEMA PARA EL EJECUTIVO
+      </div>
+      <div style="font-size:13px;color:#333;margin-bottom:8px;">
+        <strong>Decisión sugerida:</strong>
+        <span style="font-weight:bold;color:${d.resultado==='APROBADO'?'#1e7e34':d.resultado==='RECHAZADO'?'#c62828':'#e65100'};">
+          ${d.resultado==='APROBADO'?'✅ Aprobar':d.resultado==='RECHAZADO'?'❌ Rechazar':'⚠️ Escalar para revisión'}
+        </span>
+      </div>
+      <div style="font-size:13px;color:#333;margin-bottom:${d.condiciones&&d.condiciones!=='Sin condiciones adicionales'?'8px':'0'};">
+        <strong>Justificación:</strong> ${d.razon_principal||'-'}
+      </div>
+      ${d.condiciones&&d.condiciones!=='Sin condiciones adicionales'?`
+      <div style="font-size:13px;color:#1a73e8;margin-bottom:${d.recomendacion_ejecutivo?'8px':'0'};">
+        <strong>Condiciones / Acciones:</strong> ${d.condiciones}
+      </div>`:''}
+      ${d.recomendacion_ejecutivo?`
+      <div style="font-size:13px;color:#e65100;">
+        <strong>Puntos a revisar:</strong> ${d.recomendacion_ejecutivo}
+      </div>`:''}
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.08);font-size:11px;color:#999;">
+        ⚠️ Esta recomendación es una herramienta de apoyo — la decisión final corresponde al ejecutivo de crédito.
       </div>
     </div>
 
@@ -803,7 +907,7 @@ function mostrarResultado(data) {
 
     <!-- Análisis IA -->
     ${ab.interpretacion?`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px;">
       <div style="background:#f8f9fa;border-radius:8px;padding:16px;">
         <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:8px;">INTERPRETACIÓN</div>
         <div style="font-size:12px;margin-bottom:6px;"><strong>Comportamiento:</strong> ${ab.interpretacion.comportamiento_pago||'-'}</div>
@@ -826,10 +930,12 @@ function mostrarResultado(data) {
     ${cuentasHTML?`
     <div style="margin-bottom:20px;">
       <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:8px;">DETALLE DE CUENTAS</div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
       <table class="cuenta-table">
         <thead><tr><th>#</th><th>Tipo</th><th>Otorgante</th><th>Estado</th><th>Apertura</th><th>Crédito Máx</th><th>Saldo</th><th>MOP</th><th>Peor MOP</th></tr></thead>
         <tbody>${cuentasHTML}</tbody>
       </table>
+      </div>
     </div>`:''}
 
     <!-- Expediente -->
