@@ -1057,102 +1057,221 @@ function nuevaSolicitud() {
 document.getElementById('fecha').value = new Date().toISOString().split('T')[0];
 
 // ── Datos dummy para demo ──
-function cargarDemo() {
-  // Condiciones
-  document.getElementById('numero_solicitud').value = '47465130';
-  document.getElementById('nombre').value = 'CRISTEL MARTINEZ MARQUEZ';
-  document.getElementById('fecha').value = '2026-03-20';
-  document.getElementById('monto').value = '15000';
-  document.getElementById('tipo').value = 'PRODUCTIVO';
-  document.getElementById('producto').value = 'Capital de Trabajo';
-  document.getElementById('tasa').value = '131';
-  document.getElementById('cuota').value = '2142.86';
-  document.getElementById('plazo').value = '7';
-  document.getElementById('frecuencia').value = 'MENSUAL DE 28 DÍAS';
+// ── Catálogo de casos de demo ──
+const CASOS_DEMO = {
 
-  // Identificación
-  document.getElementById('verificacion_id').value = '100';
-  document.getElementById('reconocimiento_facial').value = '95';
-  document.getElementById('deteccion_vida').value = '100';
-  document.getElementById('validacion_gobierno').value = '100';
-  document.getElementById('video_selfie').value = '90';
-  document.getElementById('distancia_km').value = '0.05';
+  cristel: {
+    label: '✅ Happy path — Cristel Martinez',
+    folio: '47465130', nombre: 'CRISTEL MARTINEZ MARQUEZ', fecha: '2026-03-20',
+    monto: 15000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    tasa: 131, cuota: 2142.86, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,95,100,100,90,0.05],
+    rfc:'MAMC8203097X2', curp:'MRMRCR82030921M000', nacimiento:'09/03/1982',
+    genero:'FEMENINO', civil:'SOLTERO(A)', vivienda:'FAMILIAR', dep:0, antiguedad_dom:17,
+    negocio:'COLEGIO PAULO FREIRE', giro:'SERVICIOS', antiguedad_neg:'2005-04-30',
+    ingresos:45000, egresos:18000,
+    score:662, tipo_score:'BC SCORE', icc:'0005',
+    causas:'Última cuenta nueva aperturada recientemente, Consulta muy reciente',
+    hawk:'TELEFONO NO CORRESPONDE A ZONA POSTAL',
+    activos:2, cerrados:33, vencidos:0, atraso:0, saldo:103465, saldo_vencido:0, juicios:false,
+    cuentas:[
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'ABIERTA',apertura:'2025-09-03',maximo:35050,saldo:10057,puntuales:4,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'ABIERTA',apertura:'2025-03-26',maximo:104832,saldo:93408,puntuales:8,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'CERRADA',apertura:'2025-08-26',maximo:75840,saldo:0,puntuales:4,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'CERRADA',apertura:'2022-07-05',maximo:26500,saldo:0,puntuales:12,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'CERRADA',apertura:'2021-07-08',maximo:80500,saldo:0,puntuales:18,atrasados:0},
+    ],
+    ml:{decil:7,decision:'Aceptada',cap_pago:445,fico:661,no_hit:-10,va_no_hi:-10}
+  },
+
+  mal_buro: {
+    label: '❌ Mal historial de buró — Jorge Ramirez',
+    folio: '47511001', nombre: 'JORGE ALBERTO RAMIREZ GARCIA', fecha: '2026-03-20',
+    monto: 12000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    tasa: 131, cuota: 1714.29, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,92,100,100,88,0.03],
+    rfc:'RAGJ850310AB7', curp:'RAGJ850310HDFMRR09', nacimiento:'10/03/1985',
+    genero:'MASCULINO', civil:'CASADO(A)', vivienda:'FAMILIAR', dep:2, antiguedad_dom:8,
+    negocio:'TAQUERIA EL BUEN SABOR', giro:'COMERCIO', antiguedad_neg:'2018-06-01',
+    ingresos:28000, egresos:14000,
+    score:350, tipo_score:'BC SCORE', icc:'0003',
+    causas:'Cuentas con atrasos severos, Historial de pagos deficiente',
+    hawk:'JUICIO AMPARO 2024',
+    activos:2, cerrados:5, vencidos:2, atraso:150, saldo:45000, saldo_vencido:8500, juicios:true,
+    cuentas:[
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'ABIERTA',apertura:'2024-01-15',maximo:30000,saldo:28500,puntuales:2,atrasados:8},
+      {tipo:'TARJETA DE CRÉDITO',otorgante:'BANCO',estado:'ABIERTA',apertura:'2022-05-10',maximo:15000,saldo:14200,puntuales:5,atrasados:15},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'SOFIPO',estado:'CERRADA',apertura:'2020-03-01',maximo:8000,saldo:0,puntuales:3,atrasados:9},
+    ],
+    ml:{decil:2,decision:'Validar con mesa de crédito',cap_pago:50,fico:350,no_hit:-10,va_no_hi:-10}
+  },
+
+  sin_capacidad: {
+    label: '❌ Sin capacidad de pago — María López',
+    folio: '47511002', nombre: 'MARIA DEL CARMEN LOPEZ SOTO', fecha: '2026-03-20',
+    monto: 10000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    tasa: 131, cuota: 5200, plazo: 2, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,95,100,100,90,0.08],
+    rfc:'LOSM780921KL4', curp:'LOSM780921MDFPRC05', nacimiento:'21/09/1978',
+    genero:'FEMENINO', civil:'SOLTERO(A)', vivienda:'RENTADA', dep:3, antiguedad_dom:2,
+    negocio:'ESTÉTICA BELLA', giro:'SERVICIOS', antiguedad_neg:'2021-01-15',
+    ingresos:7500, egresos:6800,
+    score:640, tipo_score:'BC SCORE', icc:'0004',
+    causas:'Consulta reciente',
+    hawk:'',
+    activos:1, cerrados:4, vencidos:0, atraso:0, saldo:12000, saldo_vencido:0, juicios:false,
+    cuentas:[
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'ABIERTA',apertura:'2025-11-01',maximo:12000,saldo:11500,puntuales:3,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'SOFIPO',estado:'CERRADA',apertura:'2023-04-10',maximo:6000,saldo:0,puntuales:12,atrasados:0},
+    ],
+    ml:{decil:4,decision:'Validar con mesa de crédito',cap_pago:-4500,fico:-10,no_hit:-10,va_no_hi:-10}
+  },
+
+  decil_bajo: {
+    label: '⚠️ Decil bajo ML — Rafael Mendoza',
+    folio: '47511003', nombre: 'RAFAEL MENDOZA TORRES', fecha: '2026-03-20',
+    monto: 14000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    tasa: 131, cuota: 2000, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,91,100,100,85,0.06],
+    rfc:'METR900615XY3', curp:'METR900615HDFNRF02', nacimiento:'15/06/1990',
+    genero:'MASCULINO', civil:'CASADO(A)', vivienda:'PROPIA', dep:1, antiguedad_dom:5,
+    negocio:'FERRETERIA EL CLAVO', giro:'COMERCIO', antiguedad_neg:'2019-03-20',
+    ingresos:32000, egresos:15000,
+    score:620, tipo_score:'BC SCORE', icc:'0007',
+    causas:'Múltiples consultas recientes, Alta utilización de crédito',
+    hawk:'TELEFONO NO CORRESPONDE A ZONA POSTAL',
+    activos:3, cerrados:8, vencidos:0, atraso:29, saldo:68000, saldo_vencido:0, juicios:false,
+    cuentas:[
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'ABIERTA',apertura:'2025-10-01',maximo:40000,saldo:38000,puntuales:3,atrasados:1},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'ABIERTA',apertura:'2025-06-15',maximo:18000,saldo:16500,puntuales:5,atrasados:0},
+      {tipo:'TARJETA DE CRÉDITO',otorgante:'BANCO',estado:'ABIERTA',apertura:'2024-01-20',maximo:12000,saldo:11200,puntuales:10,atrasados:2},
+    ],
+    ml:{decil:2,decision:'Validar con mesa de crédito',cap_pago:180,fico:620,no_hit:-10,va_no_hi:-10}
+  },
+
+  buro_vacio: {
+    label: '⚠️ Reporte buró vacío — Ana Flores',
+    folio: '47511004', nombre: 'ANA PATRICIA FLORES RUIZ', fecha: '2026-03-20',
+    monto: 8000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    tasa: 131, cuota: 1142.86, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,88,100,0,0,0.12],
+    rfc:'FORA950428BN2', curp:'FORA950428MDFRLR06', nacimiento:'28/04/1995',
+    genero:'FEMENINO', civil:'SOLTERO(A)', vivienda:'FAMILIAR', dep:0, antiguedad_dom:3,
+    negocio:'VENTA DE COSMETICOS', giro:'COMERCIO', antiguedad_neg:'2023-09-01',
+    ingresos:20000, egresos:8000,
+    score:695, tipo_score:'BC SCORE', icc:'0002',
+    causas:'',
+    hawk:'',
+    activos:0, cerrados:0, vencidos:0, atraso:0, saldo:0, saldo_vencido:0, juicios:false,
+    cuentas:[],
+    ml:null
+  }
+};
+
+function cargarDemo() {
+  const key = document.getElementById('demo-selector').value;
+  const c = CASOS_DEMO[key];
+  if (!c) return;
+
+  document.getElementById('numero_solicitud').value = c.folio;
+  document.getElementById('nombre').value = c.nombre;
+  document.getElementById('fecha').value = c.fecha;
+  document.getElementById('monto').value = c.monto;
+  document.getElementById('tipo').value = c.tipo;
+  document.getElementById('producto').value = c.producto;
+  document.getElementById('tasa').value = c.tasa;
+  document.getElementById('cuota').value = c.cuota;
+  document.getElementById('plazo').value = c.plazo;
+  document.getElementById('frecuencia').value = c.frecuencia;
+
+  document.getElementById('verificacion_id').value = c.kyc[0];
+  document.getElementById('reconocimiento_facial').value = c.kyc[1];
+  document.getElementById('deteccion_vida').value = c.kyc[2];
+  document.getElementById('validacion_gobierno').value = c.kyc[3];
+  document.getElementById('video_selfie').value = c.kyc[4];
+  document.getElementById('distancia_km').value = c.kyc[5];
   document.querySelectorAll('.score-box input').forEach(updateScoreColor);
 
-  // Personales
-  document.getElementById('rfc').value = 'MAMC8203097X2';
-  document.getElementById('curp').value = 'MRMRCR82030921M000';
-  document.getElementById('fecha_nacimiento').value = '09/03/1982';
-  document.getElementById('genero').value = 'FEMENINO';
-  document.getElementById('estado_civil').value = 'SOLTERO(A)';
-  document.getElementById('tipo_vivienda').value = 'FAMILIAR';
-  document.getElementById('dependientes').value = '0';
-  document.getElementById('antiguedad_domicilio').value = '17';
+  document.getElementById('rfc').value = c.rfc;
+  document.getElementById('curp').value = c.curp;
+  document.getElementById('fecha_nacimiento').value = c.nacimiento;
+  document.getElementById('genero').value = c.genero;
+  document.getElementById('estado_civil').value = c.civil;
+  document.getElementById('tipo_vivienda').value = c.vivienda;
+  document.getElementById('dependientes').value = c.dep;
+  document.getElementById('antiguedad_domicilio').value = c.antiguedad_dom;
 
-  // Negocio
-  document.getElementById('nombre_negocio').value = 'COLEGIO PAULO FREIRE';
-  document.getElementById('giro').value = 'SERVICIOS';
-  document.getElementById('antiguedad_negocio').value = '2005-04-30';
+  document.getElementById('nombre_negocio').value = c.negocio;
+  document.getElementById('giro').value = c.giro;
+  document.getElementById('antiguedad_negocio').value = c.antiguedad_neg;
 
-  // Ingresos
-  document.getElementById('ingresos').value = '45000';
-  document.getElementById('egresos').value = '18000';
+  document.getElementById('ingresos').value = c.ingresos;
+  document.getElementById('egresos').value = c.egresos;
   calcFinanciero();
 
-  // Buró
-  document.getElementById('tipo_score').value = 'BC SCORE';
-  document.getElementById('score').value = '662';
-  document.getElementById('icc').value = '0005';
-  document.getElementById('causas_score').value = 'Última cuenta nueva aperturada recientemente, Consulta muy reciente';
-  document.getElementById('alertas_hawk').value = 'TELEFONO NO CORRESPONDE A ZONA POSTAL';
-  document.getElementById('creditos_activos').value = '2';
-  document.getElementById('creditos_cerrados').value = '33';
-  document.getElementById('creditos_vencidos').value = '0';
-  document.getElementById('peor_atraso').value = '0';
-  document.getElementById('saldo_actual').value = '103465';
-  document.getElementById('saldo_vencido').value = '0';
-  document.getElementById('tiene_juicios').checked = false;
+  document.getElementById('tipo_score').value = c.tipo_score;
+  document.getElementById('score').value = c.score;
+  document.getElementById('icc').value = c.icc;
+  document.getElementById('causas_score').value = c.causas;
+  document.getElementById('alertas_hawk').value = c.hawk;
+  document.getElementById('creditos_activos').value = c.activos;
+  document.getElementById('creditos_cerrados').value = c.cerrados;
+  document.getElementById('creditos_vencidos').value = c.vencidos;
+  document.getElementById('peor_atraso').value = c.atraso;
+  document.getElementById('saldo_actual').value = c.saldo;
+  document.getElementById('saldo_vencido').value = c.saldo_vencido;
+  document.getElementById('tiene_juicios').checked = c.juicios;
 
-  // Cuentas
   document.getElementById('cuentas-container').innerHTML = '';
   cuentaCount = 0;
-  const cuentasDemo = [
-    {tipo:'PRÉSTAMO PERSONAL', otorgante:'MICROFINANCIERA', estado:'ABIERTA', apertura:'2025-09-03', maximo:35050, saldo:10057, puntuales:4, atrasados:0},
-    {tipo:'PRÉSTAMO PERSONAL', otorgante:'BANCO', estado:'ABIERTA', apertura:'2025-03-26', maximo:104832, saldo:93408, puntuales:8, atrasados:0},
-    {tipo:'PRÉSTAMO PERSONAL', otorgante:'BANCO', estado:'CERRADA', apertura:'2025-08-26', maximo:75840, saldo:0, puntuales:4, atrasados:0},
-    {tipo:'PRÉSTAMO PERSONAL', otorgante:'BANCO', estado:'CERRADA', apertura:'2022-07-05', maximo:26500, saldo:0, puntuales:12, atrasados:0},
-    {tipo:'PRÉSTAMO PERSONAL', otorgante:'BANCO', estado:'CERRADA', apertura:'2021-07-08', maximo:80500, saldo:0, puntuales:18, atrasados:0},
-  ];
-  cuentasDemo.forEach(c => {
+  c.cuentas.forEach(cu => {
     agregarCuenta();
     const n = cuentaCount;
-    document.getElementById(`c${n}_tipo`).value = c.tipo;
-    document.getElementById(`c${n}_otorgante`).value = c.otorgante;
-    document.getElementById(`c${n}_estado`).value = c.estado;
-    document.getElementById(`c${n}_apertura`).value = c.apertura;
-    document.getElementById(`c${n}_maximo`).value = c.maximo;
-    document.getElementById(`c${n}_saldo`).value = c.saldo;
-    document.getElementById(`c${n}_puntuales`).value = c.puntuales || 0;
-    document.getElementById(`c${n}_atrasados`).value = c.atrasados || 0;
+    document.getElementById(`c${n}_tipo`).value = cu.tipo;
+    document.getElementById(`c${n}_otorgante`).value = cu.otorgante;
+    document.getElementById(`c${n}_estado`).value = cu.estado;
+    document.getElementById(`c${n}_apertura`).value = cu.apertura;
+    document.getElementById(`c${n}_maximo`).value = cu.maximo;
+    document.getElementById(`c${n}_saldo`).value = cu.saldo;
+    document.getElementById(`c${n}_puntuales`).value = cu.puntuales || 0;
+    document.getElementById(`c${n}_atrasados`).value = cu.atrasados || 0;
   });
 
-  // Modelo ML demo
-  document.getElementById('ml_decil').value = '7';
-  document.getElementById('ml_decision').value = 'Aceptada';
-  document.getElementById('ml_cap_pago').value = '445';
-  document.getElementById('ml_fico').value = '661';
-  document.getElementById('ml_no_hit').value = '-10';
-  document.getElementById('ml_va_no_hi').value = '-10';
-  actualizarSemaforoML();
+  if (c.ml) {
+    document.getElementById('ml_decil').value = c.ml.decil;
+    document.getElementById('ml_decision').value = c.ml.decision;
+    document.getElementById('ml_cap_pago').value = c.ml.cap_pago;
+    document.getElementById('ml_fico').value = c.ml.fico;
+    document.getElementById('ml_no_hit').value = c.ml.no_hit;
+    document.getElementById('ml_va_no_hi').value = c.ml.va_no_hi;
+    actualizarSemaforoML();
+  } else {
+    document.getElementById('ml_decil').value = '';
+    document.getElementById('ml_decision').value = '';
+    document.getElementById('ml_cap_pago').value = '';
+    document.getElementById('ml_fico').value = '';
+    document.getElementById('ml_no_hit').value = '';
+    document.getElementById('ml_va_no_hi').value = '';
+    document.getElementById('ml-semaforo').style.display = 'none';
+  }
 
-  document.getElementById('num-solicitud-display').textContent = '47465130';
-  alert('✅ Datos de demo cargados — Cristel Martinez Marquez');
+  document.getElementById('num-solicitud-display').textContent = c.folio;
+  alert(`✅ Caso cargado: ${c.nombre}`);
 }
 
-// Botón de demo en el header
-document.querySelector('.header').insertAdjacentHTML('beforeend',
-  '<button onclick="cargarDemo()" style="margin-left:auto;padding:8px 18px;background:#34a853;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">📋 Cargar Demo</button>'
-);
+// Selector de demos en el header
+document.querySelector('.header').insertAdjacentHTML('beforeend', `
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <select id="demo-selector" style="padding:7px 10px;border:1px solid #ccc;border-radius:6px;font-size:12px;background:#fff;">
+      <option value="cristel">✅ Happy path — Cristel</option>
+      <option value="mal_buro">❌ Mal historial de buró — Jorge</option>
+      <option value="sin_capacidad">❌ Sin capacidad de pago — María</option>
+      <option value="decil_bajo">⚠️ Decil bajo ML — Rafael</option>
+      <option value="buro_vacio">⚠️ Reporte buró vacío — Ana</option>
+    </select>
+    <button onclick="cargarDemo()" style="padding:8px 16px;background:#34a853;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">📋 Cargar Demo</button>
+  </div>
+`);
 </script>
 </body>
 </html>
