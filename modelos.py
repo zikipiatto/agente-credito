@@ -69,6 +69,7 @@ class Buro(BaseModel):
     peor_atraso_dias: int = 0
     saldo_actual: float = 0.0
     saldo_vencido: float = 0.0
+    pago_a_realizar: float = 0.0     # pago mensual total comprometido en buró (resumen de créditos)
     cuentas: list[CuentaBuro] = []    # detalle de todas las cuentas
 
 class ResultadoML(BaseModel):

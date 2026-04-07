@@ -68,3 +68,6 @@ Debe responder: `{"status":"ok",...}`
 - Si cierras ngrok y lo vuelves a abrir, la URL cambia — avisa a los participantes.
 - La primera vez que alguien abre la URL de ngrok aparece una pantalla de advertencia, solo hacer clic en "Visit Site".
 - No cierres ninguna de las 3 terminales mientras dure la demo.
+- Si Ollama ya está corriendo al arrancar (`address already in use`), no pasa nada — ya está activo, salta al Terminal 2.
+- La URL de ngrok termina en `.ngrok-free.dev` (no `.app`). Si hay duda, confirma en http://127.0.0.1:4040
+- Si la URL de ngrok da error "endpoint offline", abre primero en una ventana incógnito y acepta la advertencia de ngrok.

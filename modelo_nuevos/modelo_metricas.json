@@ -1,0 +1,15 @@
+{
+  "auc_cv": 0.813,
+  "gini_cv": 0.626,
+  "ks_cv": 0.5271,
+  "auc_std": 0.0048,
+  "gap": 0.0181,
+  "n_train": 28636,
+  "n_malos": 5596,
+  "tasa_mora": 19.54,
+  "auc_holdout": 0.7894,
+  "gini_holdout": 0.5789,
+  "ks_holdout": 0.4643,
+  "n_holdout": 1091,
+  "psi_score": 0.0835
+}

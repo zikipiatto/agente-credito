@@ -354,14 +354,12 @@
       <div class="field"><label>Fecha</label><input id="fecha" type="date"></div>
       <div class="field"><label>Monto solicitado ($)</label><input id="monto" type="number" placeholder="10350"></div>
       <div class="field"><label>Tipo</label>
-        <select id="tipo"><option>PRODUCTIVO</option><option>CONSUMO</option></select>
+        <select id="tipo"><option>NUEVO</option><option>RENOVACION</option></select>
       </div>
       <div class="field"><label>Producto</label>
         <select id="producto">
-          <option>Capital de Trabajo</option>
-          <option>Crédito Personal</option>
-          <option>Mejora de Negocio</option>
-          <option>Crédito Grupal</option>
+          <option>PRODUCTIVO</option>
+          <option>CONSUMO</option>
         </select>
       </div>
       <div class="field"><label>Tasa (%)</label><input id="tasa" type="number" placeholder="131"></div>
@@ -486,6 +484,20 @@
   <!-- TAB 5: Buró -->
   <div class="card" id="tab-5">
     <div class="section-title">Reporte de Buró de Crédito</div>
+
+    <!-- Carga de PDF -->
+    <div style="background:#f0f7ff;border:1.5px dashed #1a73e8;border-radius:8px;padding:16px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:#1a73e8;margin-bottom:4px;">📎 Cargar PDF de Buró de Crédito</div>
+        <div style="font-size:12px;color:#666;">El sistema extrae automáticamente score, ICC, cuentas y alertas</div>
+      </div>
+      <input type="file" id="pdf-buro-input" accept=".pdf" style="display:none" onchange="cargarPdfBuro(this)">
+      <button class="btn btn-primary" style="white-space:nowrap" onclick="document.getElementById('pdf-buro-input').click()">
+        Seleccionar PDF
+      </button>
+      <span id="pdf-buro-status" style="font-size:12px;color:#666;"></span>
+    </div>
+
     <div class="form-grid">
       <div class="field"><label>Tipo de Score</label>
         <select id="tipo_score"><option>BC SCORE</option><option>FICO</option><option>OTRO</option><option>SIN SCORE</option></select>
@@ -511,6 +523,7 @@
       <div class="field"><label>Peor atraso (días)</label><input id="peor_atraso" type="number" value="0"></div>
       <div class="field"><label>Saldo actual ($)</label><input id="saldo_actual" type="number" value="0"></div>
       <div class="field"><label>Saldo vencido ($)</label><input id="saldo_vencido" type="number" value="0"></div>
+      <div class="field"><label>Pago a realizar / mes ($)</label><input id="pago_a_realizar" type="number" value="0" placeholder="Del resumen de créditos en buró"></div>
     </div>
 
     <div style="margin-top:8px;">
@@ -519,42 +532,11 @@
       </label>
     </div>
 
-    <!-- Modelo Predictivo ML -->
-    <div class="buro-section">
-      <h3>Resultado del Modelo Predictivo (opcional)</h3>
-      <div style="background:#f0f4ff;border-radius:8px;padding:16px;margin-bottom:8px;">
-        <div class="form-grid" style="margin-bottom:12px;">
-          <div class="field"><label>Valor del Decil (1-10)</label>
-            <input id="ml_decil" type="number" min="1" max="10" placeholder="7" oninput="actualizarSemaforoML()">
-          </div>
-          <div class="field"><label>Decisión ML</label>
-            <select id="ml_decision">
-              <option value="">— Sin dato —</option>
-              <option>Aceptada</option>
-              <option>Validar con mesa de crédito</option>
-              <option>Rechazada</option>
-            </select>
-          </div>
-          <div class="field"><label>Capacidad de pago ML ($)</label>
-            <input id="ml_cap_pago" type="number" placeholder="445">
-          </div>
-        </div>
-        <div class="form-grid">
-          <div class="field"><label>Fico Score (-10 = sin hit)</label>
-            <input id="ml_fico" type="number" placeholder="-10">
-          </div>
-          <div class="field"><label>Score No Hit (-10 = sin hit)</label>
-            <input id="ml_no_hit" type="number" placeholder="-10">
-          </div>
-          <div class="field"><label>VaNoHi (-10 = sin hit)</label>
-            <input id="ml_va_no_hi" type="number" placeholder="-10">
-          </div>
-        </div>
-        <div id="ml-semaforo" style="margin-top:12px;display:none;align-items:center;gap:12px;">
-          <span style="font-size:13px;font-weight:500;">Nivel de riesgo:</span>
-          <span id="ml-semaforo-color" style="font-size:22px;"></span>
-          <span id="ml-semaforo-texto" style="font-size:14px;font-weight:bold;"></span>
-        </div>
+    <!-- Modelo Predictivo ML — se ejecuta automáticamente para tipo NUEVO -->
+    <div class="buro-section" id="ml-info-box" style="display:none;">
+      <div style="background:#f0f4ff;border-radius:8px;padding:12px 16px;font-size:12px;color:#555;">
+        🤖 <strong>Modelo predictivo ML (XGBoost)</strong> — se ejecutará automáticamente al analizar.<br>
+        Solo disponible para créditos <strong>NUEVO</strong>. Para <strong>RENOVACION</strong> el motor usa los otros factores.
       </div>
     </div>
 
@@ -614,6 +596,27 @@ function updateScoreColor(el) {
   el.className = v >= 70 ? 'green' : v > 0 ? '' : 'red';
 }
 
+function calcCuota() {
+  const monto  = parseFloat(document.getElementById('monto').value) || 0;
+  const plazo  = parseInt(document.getElementById('plazo').value) || 0;
+  const tasa   = parseFloat(document.getElementById('tasa').value) || 0;
+  const frec   = document.getElementById('frecuencia').value;
+  if (!monto || !plazo) return;
+
+  const diasPeriodo = { 'MENSUAL DE 28 DÍAS': 28, 'QUINCENAL': 14, 'SEMANAL': 7, 'MENSUAL': 30 }[frec] || 28;
+  const r = (tasa / 100) * (diasPeriodo / 365);  // tasa periódica
+
+  let cuota;
+  if (r === 0) {
+    cuota = monto / plazo;
+  } else {
+    cuota = monto * r / (1 - Math.pow(1 + r, -plazo));  // fórmula de anualidad
+  }
+
+  document.getElementById('cuota').value = cuota.toFixed(2);
+  calcFinanciero();
+}
+
 function calcFinanciero() {
   const ing = parseFloat(document.getElementById('ingresos').value) || 0;
   const egr = parseFloat(document.getElementById('egresos').value) || 0;
@@ -624,6 +627,11 @@ function calcFinanciero() {
   document.getElementById('ratio-cuota').textContent = ratio + '%';
   document.getElementById('ratio-cuota').style.color = ratio > 40 ? '#f44336' : '#34a853';
 }
+
+document.getElementById('monto').addEventListener('input', calcCuota);
+document.getElementById('plazo').addEventListener('input', calcCuota);
+document.getElementById('tasa').addEventListener('input', calcCuota);
+document.getElementById('frecuencia').addEventListener('change', calcCuota);
 document.getElementById('ingresos').addEventListener('input', calcFinanciero);
 document.getElementById('egresos').addEventListener('input', calcFinanciero);
 document.getElementById('cuota').addEventListener('input', calcFinanciero);
@@ -677,32 +685,15 @@ function recopilarCuentas() {
   return cuentas;
 }
 
-function actualizarSemaforoML() {
-  const decil = parseInt(document.getElementById('ml_decil').value);
-  const box = document.getElementById('ml-semaforo');
-  if (!decil || decil < 1 || decil > 10) { box.style.display='none'; return; }
-  box.style.display = 'flex';
-  const nivel = decil >= 7 ? 'BAJO' : decil >= 4 ? 'MEDIO' : 'ALTO';
-  const color = decil >= 7 ? '🟢' : decil >= 4 ? '🟡' : '🔴';
-  const colorTexto = decil >= 7 ? '#1e7e34' : decil >= 4 ? '#e65100' : '#c62828';
-  document.getElementById('ml-semaforo-color').textContent = color;
-  document.getElementById('ml-semaforo-texto').textContent = nivel;
-  document.getElementById('ml-semaforo-texto').style.color = colorTexto;
+function recopilarML() {
+  // El modelo ML corre automáticamente en el backend para tipo NUEVO.
+  return null;
 }
 
-function recopilarML() {
-  const decil = parseInt(document.getElementById('ml_decil').value);
-  if (!decil) return null;
-  const nivel = decil >= 7 ? 'BAJO' : decil >= 4 ? 'MEDIO' : 'ALTO';
-  return {
-    valor_decil:       decil,
-    nivel_riesgo:      nivel,
-    decision_ml:       document.getElementById('ml_decision').value || null,
-    capacidad_pago_ml: parseFloat(document.getElementById('ml_cap_pago').value) || null,
-    fico_score:        parseFloat(document.getElementById('ml_fico').value) || null,
-    score_no_hit:      parseFloat(document.getElementById('ml_no_hit').value) || null,
-    va_no_hi:          parseFloat(document.getElementById('ml_va_no_hi').value) || null,
-  };
+function actualizarInfoML() {
+  const tipo = document.getElementById('tipo').value;
+  const box  = document.getElementById('ml-info-box');
+  if (box) box.style.display = tipo === 'NUEVO' ? 'block' : 'none';
 }
 
 function parseCausas(str) {
@@ -774,6 +765,7 @@ async function enviarSolicitud() {
       peor_atraso_dias: parseInt(document.getElementById('peor_atraso').value) || 0,
       saldo_actual: parseFloat(document.getElementById('saldo_actual').value) || 0,
       saldo_vencido: parseFloat(document.getElementById('saldo_vencido').value) || 0,
+      pago_a_realizar: parseFloat(document.getElementById('pago_a_realizar').value) || 0,
       etiqueta_riesgo: null,
       cuentas: recopilarCuentas()
     },
@@ -806,11 +798,13 @@ async function enviarSolicitud() {
 }
 
 function mostrarResultado(data) {
+  _currentFolio = data.solicitud?.numero || null;
   const d = data.decision;
   const kyc = data.kyc;
   const fin = data.financiero;
   const buro = data.buro;
   const ab = data.analisis_buro;
+  const cf = data.condiciones_finales;
 
   const decisionClass = d.resultado;
   const decisionIcon = {'APROBADO':'✅','RECHAZADO':'❌','ESCALAR_EJECUTIVO':'⚠️','VALIDACION':'🔔'}[d.resultado] || '❓';
@@ -847,7 +841,7 @@ function mostrarResultado(data) {
       <div style="flex:3;padding:12px 16px;background:#f8f9fa;border-radius:8px;">
         <div style="font-size:12px;color:#888;">Razón</div>
         <div style="font-size:14px;color:#333;margin-top:4px;">${d.razon_principal||'-'}</div>
-        ${d.condiciones&&d.condiciones!=='Sin condiciones adicionales'?`<div style="font-size:12px;color:#1a73e8;margin-top:4px;">📋 ${d.condiciones}</div>`:''}
+        ${d.condiciones&&d.condiciones!=='Sin condiciones adicionales'?`<div style="font-size:12px;color:#1a73e8;margin-top:4px;">📋 ${typeof d.condiciones === 'object' ? JSON.stringify(d.condiciones, null, 2).replace(/[{}"]/g,'').trim() : d.condiciones}</div>`:''}
       </div>
     </div>
 
@@ -856,15 +850,19 @@ function mostrarResultado(data) {
     <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin-bottom:20px;">
       <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:12px;">DESGLOSE SCORE DE RIESGO</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;">
-        ${[
-          {lbl:'Score buró',       val:d.desglose_score.score_buro,     peso:'35%'},
-          {lbl:'Cuota / Ingreso',  val:d.desglose_score.cuota_ingreso,  peso:'25%'},
-          {lbl:'KYC biométrico',   val:d.desglose_score.kyc_biometrico, peso:'20%'},
-          {lbl:'Señales de riesgo',val:d.desglose_score.senales_riesgo, peso:'20%'},
-        ].map(f => `
-          <div style="background:#fff;border-radius:6px;padding:10px;border-left:3px solid ${f.val>=7?'#ea4335':f.val>=4?'#fb8c00':'#34a853'};">
+        ${(() => {
+          const tieneML = d.desglose_score.tiene_ml;
+          const pesos   = d.desglose_score.pesos || {};
+          return [
+            {lbl:'Score buró',       val:d.desglose_score.score_buro,    peso: pesos.score_buro    || (tieneML?'30%':'45%')},
+            {lbl:'Cuota / Ingreso',  val:d.desglose_score.cuota_ingreso, peso: pesos.cuota_ingreso || (tieneML?'25%':'30%')},
+            {lbl:'Señales de riesgo',val:d.desglose_score.senales_riesgo,peso: pesos.senales_riesgo|| (tieneML?'15%':'25%')},
+            ...(tieneML ? [{lbl:'Modelo ML',val:d.desglose_score.modelo_ml,peso: pesos.modelo_ml||'30%'}] : []),
+          ];
+        })().map(f => `
+          <div style="background:#fff;border-radius:6px;padding:10px;border-left:3px solid ${f.val>=7?'#34a853':f.val>=4?'#fb8c00':'#ea4335'};">
             <div style="font-size:10px;color:#888;">${f.lbl} <span style="color:#1a73e8;">(${f.peso})</span></div>
-            <div style="font-size:20px;font-weight:bold;color:${f.val>=7?'#ea4335':f.val>=4?'#fb8c00':'#34a853'};">${f.val}/10</div>
+            <div style="font-size:20px;font-weight:bold;color:${f.val>=7?'#34a853':f.val>=4?'#fb8c00':'#ea4335'};">${f.val}/10</div>
           </div>`).join('')}
       </div>
       <div style="display:flex;align-items:center;gap:12px;font-size:12px;flex-wrap:wrap;">
@@ -888,8 +886,10 @@ function mostrarResultado(data) {
         <h4>Análisis Financiero</h4>
         <div class="status" style="color:${fin.aprobado?'#34a853':'#ea4335'}">${fin.aprobado?'✅ APROBADO':'❌ RECHAZADO'}</div>
         <div class="detail">Ingreso neto: $${(fin.ingreso_neto||0).toLocaleString('es-MX')}</div>
-        <div class="detail">Cuota/Ingreso: ${fin.cuota_sobre_ingreso_pct}%</div>
+        ${fin.pago_buro > 0 ? `<div class="detail" style="color:#f57c00;">Pagos buró: $${(fin.pago_buro||0).toLocaleString('es-MX')} | Total compromisos: $${(fin.total_compromisos||0).toLocaleString('es-MX')}</div>` : ''}
+        <div class="detail">Compromisos/Ingreso: ${fin.cuota_sobre_ingreso_pct}%</div>
         <div class="detail">Cap. de pago: $${(fin.capacidad_pago||0).toLocaleString('es-MX')}</div>
+        ${fin.monto_reducido ? `<div class="detail" style="margin-top:6px;padding:6px 8px;background:#fff3e0;border-radius:4px;border-left:3px solid #f57c00;font-weight:600;">⚠ Monto ajustado: $${(fin.monto_aprobado||0).toLocaleString('es-MX')} <span style="font-weight:normal;color:#888;">(solicitado: $${(fin.monto_solicitado||0).toLocaleString('es-MX')})</span></div>` : ''}
         ${(fin.alertas||[]).map(a=>`<div class="alert-item">⚠ ${a}</div>`).join('')}
       </div>
       <div class="resultado-card ${buro.aprobado?'ok':'fail'}">
@@ -926,8 +926,65 @@ function mostrarResultado(data) {
       </div>
     </div>` : `
     <div style="background:#f8f9fa;border-radius:8px;padding:12px 16px;margin-bottom:20px;border-left:4px solid #ccc;font-size:13px;color:#888;">
-      🤖 <strong>Modelo Predictivo ML:</strong> No disponible — el score se calculó con 4 factores (sin decil)
+      🤖 <strong>Modelo Predictivo ML:</strong> No disponible — el score se calculó con 3 factores (buró, cuota/ingreso, señales)
     </div>`}
+
+    <!-- Análisis Narrativo Completo de Buró -->
+    ${data.analisis_buro_completo ? `
+    <div style="background:#f0f4ff;border:1px solid #90caf9;border-radius:8px;padding:20px;margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:bold;color:#1565c0;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+        📊 ANÁLISIS COMPLETO DE BURÓ
+        <span style="font-size:11px;font-weight:normal;color:#1976d2;background:#e3f2fd;padding:2px 8px;border-radius:10px;">
+          qwen2.5:14b — lectura integral del historial
+        </span>
+      </div>
+      <div style="font-size:13px;color:#1a1a2e;line-height:1.75;white-space:pre-wrap;">${data.analisis_buro_completo}</div>
+    </div>` : ''}
+
+    <!-- Equipo Analista + Síntesis IA -->
+    ${(data.analisis_equipo?.riesgo_buro || data.analisis_equipo?.perfil_negocio || data.analisis_equipo?.alertas || data.deliberacion_ia) ? `
+<div style="margin-bottom:20px;">
+  <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:10px;letter-spacing:0.5px;">
+    🤝 EQUIPO ANALISTA IA — Análisis especializado por agente
+  </div>
+
+  <!-- 3 tarjetas del equipo -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:12px;">
+    ${data.analisis_equipo?.riesgo_buro ? `
+    <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:14px;">
+      <div style="font-size:11px;font-weight:bold;color:#2e7d32;margin-bottom:8px;">📊 ESPECIALISTA BURÓ</div>
+      <div style="font-size:12px;color:#1b5e20;line-height:1.6;white-space:pre-wrap;">${data.analisis_equipo.riesgo_buro}</div>
+    </div>` : ''}
+    ${data.analisis_equipo?.perfil_negocio ? `
+    <div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:14px;">
+      <div style="font-size:11px;font-weight:bold;color:#1565c0;margin-bottom:8px;">🏪 ESPECIALISTA NEGOCIO</div>
+      <div style="font-size:12px;color:#0d47a1;line-height:1.6;white-space:pre-wrap;">${data.analisis_equipo.perfil_negocio}</div>
+    </div>` : ''}
+    ${data.analisis_equipo?.alertas ? `
+    <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:14px;">
+      <div style="font-size:11px;font-weight:bold;color:#e65100;margin-bottom:8px;">🚨 ESPECIALISTA ALERTAS</div>
+      <div style="font-size:12px;color:#bf360c;line-height:1.6;white-space:pre-wrap;">${data.analisis_equipo.alertas}</div>
+    </div>` : ''}
+  </div>
+
+  <!-- Síntesis del analista senior -->
+  ${data.deliberacion_ia ? `
+  <div style="background:#f5f0ff;border:1px solid #ce93d8;border-radius:8px;padding:20px;">
+    <div style="font-size:12px;font-weight:bold;color:#7b1fa2;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+      🧠 SÍNTESIS — ANALISTA SENIOR IA
+      <span style="font-size:11px;font-weight:normal;color:#9c27b0;background:#f3e5f5;padding:2px 8px;border-radius:10px;">
+        Para la mesa de crédito · El analista decide
+      </span>
+    </div>
+    <div style="font-size:13px;color:#333;line-height:1.75;white-space:pre-wrap;">${data.deliberacion_ia}</div>
+  </div>` : ''}
+
+  ${data.analisis_equipo?.patrones ? `
+  <div style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:14px;margin-top:10px;">
+    <div style="font-size:11px;font-weight:bold;color:#555;margin-bottom:8px;">📚 PATRONES HISTÓRICOS</div>
+    <div style="font-size:12px;color:#444;line-height:1.6;white-space:pre-wrap;">${data.analisis_equipo.patrones}</div>
+  </div>` : ''}
+</div>` : ''}
 
     <!-- Recomendación para el ejecutivo -->
     <div style="border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid ${
@@ -949,7 +1006,7 @@ function mostrarResultado(data) {
       </div>
       ${d.condiciones&&d.condiciones!=='Sin condiciones adicionales'?`
       <div style="font-size:13px;color:#1a73e8;margin-bottom:${d.recomendacion_ejecutivo?'8px':'0'};">
-        <strong>Condiciones / Acciones:</strong> ${d.condiciones}
+        <strong>Condiciones / Acciones:</strong> ${typeof d.condiciones === 'object' ? JSON.stringify(d.condiciones, null, 2).replace(/[{}"]/g,'').trim() : d.condiciones}
       </div>`:''}
       ${d.recomendacion_ejecutivo?`
       <div style="font-size:13px;color:${d.resultado==='VALIDACION'?'#f9a825':d.resultado==='RECHAZADO'?'#c62828':'#e65100'};">
@@ -960,11 +1017,51 @@ function mostrarResultado(data) {
       </div>
     </div>
 
+    <!-- Condiciones finales del crédito -->
+    ${cf ? `
+    <div style="border-radius:8px;padding:20px;margin-bottom:20px;background:#1a1a2e;color:#fff;">
+      <div style="font-size:12px;font-weight:bold;color:#aaa;margin-bottom:14px;letter-spacing:1px;">
+        📄 CONDICIONES FINALES DEL CRÉDITO
+      </div>
+      ${cf.monto_reducido ? `
+      <div style="font-size:11px;color:#ffa726;margin-bottom:12px;padding:6px 10px;background:rgba(255,167,38,0.15);border-radius:4px;">
+        ⚠ Monto ajustado por capacidad de pago — solicitado: $${(cf.monto_solicitado||0).toLocaleString('es-MX')}
+      </div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px;">
+        <div>
+          <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Monto aprobado</div>
+          <div style="font-size:22px;font-weight:bold;color:#4fc3f7;">$${(cf.monto||0).toLocaleString('es-MX')}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Cuota</div>
+          <div style="font-size:22px;font-weight:bold;color:#81c784;">$${(cf.cuota||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Plazo</div>
+          <div style="font-size:22px;font-weight:bold;color:#fff;">${cf.plazo} pagos</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Tasa anual</div>
+          <div style="font-size:22px;font-weight:bold;color:#fff;">${cf.tasa}%</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Frecuencia</div>
+          <div style="font-size:14px;font-weight:bold;color:#fff;margin-top:6px;">${cf.frecuencia}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Producto</div>
+          <div style="font-size:14px;font-weight:bold;color:#fff;margin-top:6px;">${cf.producto}</div>
+        </div>
+      </div>
+    </div>` : ''}
+
     <!-- Métricas de buró -->
     ${ab.metricas?`
     <div style="margin-bottom:20px;">
       <div style="font-size:13px;font-weight:bold;color:#555;margin-bottom:12px;">MÉTRICAS DE BURÓ</div>
       <div class="metricas-grid">
+        <div class="metrica-box"><div class="val" style="color:#1a73e8;font-size:22px;">${buro.score||'N/A'}</div><div class="lbl">${buro.tipo_score||'BC Score'}</div></div>
+        <div class="metrica-box"><div class="val" style="color:${(()=>{const v=parseInt(buro.icc);return v>=7?'#34a853':v<=3?'#ea4335':'#fb8c00'})()}">${buro.icc||'N/A'}<span style="font-size:12px;font-weight:normal;color:#888;">/9</span></div><div class="lbl">ICC (Índice Comportamiento)</div></div>
         <div class="metrica-box"><div class="val">${ab.metricas.utilizacion_credito_pct||0}%</div><div class="lbl">Utilización crédito</div></div>
         <div class="metrica-box">
           <div class="val">${ab.metricas.tasa_puntualidad_pct !== null && ab.metricas.tasa_puntualidad_pct !== undefined ? ab.metricas.tasa_puntualidad_pct+'%' : 'N/D'}</div>
@@ -972,6 +1069,7 @@ function mostrarResultado(data) {
         </div>
         <div class="metrica-box"><div class="val">${ab.metricas.peor_mop_historico||0}</div><div class="lbl">Peor MOP histórico</div></div>
         <div class="metrica-box"><div class="val" style="color:${ab.metricas.saldo_vencido>0?'#ea4335':'#34a853'}">$${(ab.metricas.saldo_vencido||0).toLocaleString('es-MX')}</div><div class="lbl">Saldo vencido</div></div>
+        ${fin.pago_buro > 0 ? `<div class="metrica-box"><div class="val" style="color:#f57c00;">$${(fin.pago_buro||0).toLocaleString('es-MX')}</div><div class="lbl">Pago a realizar / mes</div></div>` : ''}
       </div>
 
       <!-- Desglose por otorgante -->
@@ -1047,6 +1145,35 @@ function mostrarResultado(data) {
       </summary>
       <div class="expediente-box" style="margin-top:8px;">${data.expediente_texto||''}</div>
     </details>
+
+    <!-- Sección de feedback del analista -->
+    <div style="background:#fff;border:2px solid #1a73e8;border-radius:8px;padding:20px;margin-top:20px;" id="feedback-section">
+      <div style="font-size:14px;font-weight:bold;color:#1a73e8;margin-bottom:16px;">
+        📝 Comentarios del Analista de Mesa de Crédito
+      </div>
+      <div style="display:grid;grid-template-columns:200px 1fr auto;gap:12px;align-items:end;">
+        <div>
+          <label style="font-size:12px;color:#555;display:block;margin-bottom:4px;">Decisión final del analista</label>
+          <select id="fb-decision" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+            <option value="">-- Seleccionar --</option>
+            <option value="APROBADO">✅ Aprobado</option>
+            <option value="VALIDACION">🔔 Validación adicional</option>
+            <option value="ESCALAR_EJECUTIVO">⚠️ Escalado a ejecutivo</option>
+            <option value="RECHAZADO">❌ Rechazado</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;color:#555;display:block;margin-bottom:4px;">Comentario / Justificación</label>
+          <input id="fb-comentario" type="text" placeholder="¿Por qué tomaste esta decisión? ¿Qué verificaste en la entrevista?"
+                 style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <button onclick="enviarFeedback()"
+                style="padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;">
+          Guardar feedback
+        </button>
+      </div>
+      <div id="fb-status" style="font-size:12px;margin-top:8px;color:#34a853;display:none;">✅ Feedback guardado correctamente</div>
+    </div>
   `;
 }
 
@@ -1054,8 +1181,36 @@ function nuevaSolicitud() {
   location.reload();
 }
 
+let _currentFolio = null;
+
+async function enviarFeedback() {
+  const decision = document.getElementById('fb-decision').value;
+  const comentario = document.getElementById('fb-comentario').value;
+  if (!decision) { alert('Selecciona una decisión'); return; }
+  if (!_currentFolio) { alert('No hay folio de solicitud activo'); return; }
+
+  try {
+    const resp = await fetch('/feedback', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ folio: _currentFolio, decision_analista: decision, comentario: comentario || '' })
+    });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      document.getElementById('fb-status').style.display = 'block';
+      setTimeout(() => document.getElementById('fb-status').style.display = 'none', 3000);
+    }
+  } catch(e) {
+    alert('Error al guardar feedback: ' + e.message);
+  }
+}
+
 // Fecha de hoy por default
 document.getElementById('fecha').value = new Date().toISOString().split('T')[0];
+
+// Mostrar/ocultar aviso ML según tipo
+document.getElementById('tipo').addEventListener('change', actualizarInfoML);
+actualizarInfoML();
 
 // ── Datos dummy para demo ──
 // ── Catálogo de casos de demo ──
@@ -1064,7 +1219,7 @@ const CASOS_DEMO = {
   cristel: {
     label: '✅ Happy path — Cristel Martinez',
     folio: '47465130', nombre: 'CRISTEL MARTINEZ MARQUEZ', fecha: '2026-03-20',
-    monto: 15000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    monto: 15000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
     tasa: 131, cuota: 2142.86, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
     kyc: [100,95,100,100,90,0.05],
     rfc:'MAMC8203097X2', curp:'MRMRCR82030921M000', nacimiento:'09/03/1982',
@@ -1074,7 +1229,7 @@ const CASOS_DEMO = {
     score:662, tipo_score:'BC SCORE', icc:'0005',
     causas:'Última cuenta nueva aperturada recientemente, Consulta muy reciente',
     hawk:'TELEFONO NO CORRESPONDE A ZONA POSTAL',
-    activos:2, cerrados:33, vencidos:0, atraso:0, saldo:103465, saldo_vencido:0, juicios:false,
+    activos:2, cerrados:33, vencidos:0, atraso:0, saldo:103465, saldo_vencido:0, pago_buro:6886, juicios:false,
     cuentas:[
       {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'ABIERTA',apertura:'2025-09-03',maximo:35050,saldo:10057,puntuales:4,atrasados:0},
       {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'ABIERTA',apertura:'2025-03-26',maximo:104832,saldo:93408,puntuales:8,atrasados:0},
@@ -1088,7 +1243,7 @@ const CASOS_DEMO = {
   mal_buro: {
     label: '❌ Mal historial de buró — Jorge Ramirez',
     folio: '47511001', nombre: 'JORGE ALBERTO RAMIREZ GARCIA', fecha: '2026-03-20',
-    monto: 12000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    monto: 12000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
     tasa: 131, cuota: 1714.29, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
     kyc: [100,92,100,100,88,0.03],
     rfc:'RAGJ850310AB7', curp:'RAGJ850310HDFMRR09', nacimiento:'10/03/1985',
@@ -1110,7 +1265,7 @@ const CASOS_DEMO = {
   sin_capacidad: {
     label: '❌ Sin capacidad de pago — María López',
     folio: '47511002', nombre: 'MARIA DEL CARMEN LOPEZ SOTO', fecha: '2026-03-20',
-    monto: 10000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    monto: 10000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
     tasa: 131, cuota: 5200, plazo: 2, frecuencia: 'MENSUAL DE 28 DÍAS',
     kyc: [100,95,100,100,90,0.08],
     rfc:'LOSM780921KL4', curp:'LOSM780921MDFPRC05', nacimiento:'21/09/1978',
@@ -1131,7 +1286,7 @@ const CASOS_DEMO = {
   decil_bajo: {
     label: '⚠️ Decil bajo ML — Rafael Mendoza',
     folio: '47511003', nombre: 'RAFAEL MENDOZA TORRES', fecha: '2026-03-20',
-    monto: 14000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    monto: 14000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
     tasa: 131, cuota: 2000, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
     kyc: [100,91,100,100,85,0.06],
     rfc:'METR900615XY3', curp:'METR900615HDFNRF02', nacimiento:'15/06/1990',
@@ -1153,7 +1308,7 @@ const CASOS_DEMO = {
   buro_vacio: {
     label: '⚠️ Reporte buró vacío — Ana Flores',
     folio: '47511004', nombre: 'ANA PATRICIA FLORES RUIZ', fecha: '2026-03-20',
-    monto: 8000, tipo: 'PRODUCTIVO', producto: 'Capital de Trabajo',
+    monto: 8000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
     tasa: 131, cuota: 1142.86, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
     kyc: [100,88,100,0,0,0.12],
     rfc:'FORA950428BN2', curp:'FORA950428MDFRLR06', nacimiento:'28/04/1995',
@@ -1166,6 +1321,50 @@ const CASOS_DEMO = {
     activos:0, cerrados:0, vencidos:0, atraso:0, saldo:0, saldo_vencido:0, juicios:false,
     cuentas:[],
     ml:null
+  },
+
+  thin_file: {
+    label: '🔔 Expediente delgado → VALIDACION — Alejandra Sánchez',
+    folio: '47184400', nombre: 'ALEJANDRA SANCHEZ MORALES', fecha: '2026-03-27',
+    monto: 8000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
+    tasa: 131, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,93,100,100,90,0.3],
+    rfc:'SAMA920614KP3', curp:'SAMA920614MDFNRL08', nacimiento:'14/06/1992',
+    genero:'FEMENINO', civil:'SOLTERO(A)', vivienda:'FAMILIAR', dep:0, antiguedad_dom:4,
+    negocio:'PAPELERIA Y COPIAS', giro:'COMERCIO', antiguedad_neg:'2022-03-01',
+    ingresos:22000, egresos:9500,
+    score:702, tipo_score:'BC SCORE', icc:'0009',
+    causas:'Cuenta nueva reciente',
+    hawk:'',
+    activos:1, cerrados:2, vencidos:0, atraso:0, saldo:5200, saldo_vencido:0, pago_buro:850, juicios:false,
+    cuentas:[
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'ABIERTA',apertura:'2025-10-15',maximo:8000,saldo:5200,puntuales:3,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'CERRADA',apertura:'2024-04-01',maximo:5000,saldo:0,puntuales:8,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'MICROFINANCIERA',estado:'CERRADA',apertura:'2023-01-10',maximo:3000,saldo:0,puntuales:6,atrasados:0},
+    ],
+    ml:{decil:7,decision:'Aceptada',cap_pago:320,fico:702,no_hit:-10,va_no_hi:-10}
+  },
+
+  umbral_40: {
+    label: '✅ Perfil limpio con umbral 40% — Patricia Herrera',
+    folio: '47511005', nombre: 'PATRICIA HERRERA LUNA', fecha: '2026-03-27',
+    monto: 20000, tipo: 'NUEVO', producto: 'PRODUCTIVO',
+    tasa: 131, plazo: 7, frecuencia: 'MENSUAL DE 28 DÍAS',
+    kyc: [100,96,100,100,92,0.2],
+    rfc:'HELP830917QF1', curp:'HELP830917MDFRNR04', nacimiento:'17/09/1983',
+    genero:'FEMENINO', civil:'CASADO(A)', vivienda:'PROPIA', dep:1, antiguedad_dom:10,
+    negocio:'BOUTIQUE MODA', giro:'COMERCIO', antiguedad_neg:'2017-08-15',
+    ingresos:38000, egresos:16000,
+    score:650, tipo_score:'BC SCORE', icc:'0006',
+    causas:'Consulta reciente',
+    hawk:'',
+    activos:3, cerrados:12, vencidos:0, atraso:0, saldo:48000, saldo_vencido:0, pago_buro:4200, juicios:false,
+    cuentas:[
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'ABIERTA',apertura:'2025-07-01',maximo:40000,saldo:32000,puntuales:6,atrasados:0},
+      {tipo:'TARJETA DE CRÉDITO',otorgante:'BANCO',estado:'ABIERTA',apertura:'2024-01-20',maximo:10000,saldo:9500,puntuales:14,atrasados:0},
+      {tipo:'PRÉSTAMO PERSONAL',otorgante:'BANCO',estado:'ABIERTA',apertura:'2023-09-01',maximo:15000,saldo:6500,puntuales:18,atrasados:0},
+    ],
+    ml:{decil:8,decision:'Aceptada',cap_pago:580,fico:650,no_hit:-10,va_no_hi:-10}
   }
 };
 
@@ -1221,6 +1420,7 @@ function cargarDemo() {
   document.getElementById('peor_atraso').value = c.atraso;
   document.getElementById('saldo_actual').value = c.saldo;
   document.getElementById('saldo_vencido').value = c.saldo_vencido;
+  document.getElementById('pago_a_realizar').value = c.pago_buro || 0;
   document.getElementById('tiene_juicios').checked = c.juicios;
 
   document.getElementById('cuentas-container').innerHTML = '';
@@ -1238,26 +1438,98 @@ function cargarDemo() {
     document.getElementById(`c${n}_atrasados`).value = cu.atrasados || 0;
   });
 
-  if (c.ml) {
-    document.getElementById('ml_decil').value = c.ml.decil;
-    document.getElementById('ml_decision').value = c.ml.decision;
-    document.getElementById('ml_cap_pago').value = c.ml.cap_pago;
-    document.getElementById('ml_fico').value = c.ml.fico;
-    document.getElementById('ml_no_hit').value = c.ml.no_hit;
-    document.getElementById('ml_va_no_hi').value = c.ml.va_no_hi;
-    actualizarSemaforoML();
-  } else {
-    document.getElementById('ml_decil').value = '';
-    document.getElementById('ml_decision').value = '';
-    document.getElementById('ml_cap_pago').value = '';
-    document.getElementById('ml_fico').value = '';
-    document.getElementById('ml_no_hit').value = '';
-    document.getElementById('ml_va_no_hi').value = '';
-    document.getElementById('ml-semaforo').style.display = 'none';
-  }
-
+  actualizarInfoML();
   document.getElementById('num-solicitud-display').textContent = c.folio;
   alert(`✅ Caso cargado: ${c.nombre}`);
+}
+
+// ── Carga de PDF de Buró ──
+async function cargarPdfBuro(input) {
+  const archivo = input.files[0];
+  if (!archivo) return;
+
+  const status = document.getElementById('pdf-buro-status');
+  status.textContent = '⏳ Procesando PDF...';
+  status.style.color = '#1a73e8';
+
+  const formData = new FormData();
+  formData.append('archivo', archivo);
+
+  try {
+    const resp = await fetch('/parsear-buro', { method: 'POST', body: formData });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Error desconocido');
+    }
+    const resultado = await resp.json();
+    const d = resultado.datos;
+
+    // ── Llenar campos del formulario ──
+    const tipoMap = {
+      'BC SCORE / ICC': 'BC SCORE',
+      'BC SCORE':       'BC SCORE',
+      'SCORE NO HIT':   'OTRO',
+      'SIN SCORE':      'SIN SCORE',
+    };
+    document.getElementById('tipo_score').value     = tipoMap[d.tipo_score] || 'BC SCORE';
+    document.getElementById('score').value           = d.score ?? '';
+    document.getElementById('icc').value             = d.icc   ?? '';
+    document.getElementById('causas_score').value    = (d.causas_score || []).join(', ');
+    document.getElementById('alertas_hawk').value    = (d.alertas_hawk  || []).join(', ');
+    document.getElementById('creditos_activos').value  = d.cuentas_abiertas  || 0;
+    document.getElementById('creditos_cerrados').value = d.cuentas_cerradas  || 0;
+    document.getElementById('creditos_vencidos').value = d.creditos_vencidos || 0;
+    document.getElementById('peor_atraso').value       = d.peor_atraso_dias  || 0;
+    document.getElementById('saldo_actual').value      = d.saldo_actual      || 0;
+    document.getElementById('saldo_vencido').value     = d.saldo_vencido     || 0;
+    document.getElementById('pago_a_realizar').value   = d.pago_a_realizar   || 0;
+    document.getElementById('tiene_juicios').checked   = d.tiene_juicios     || false;
+
+    // Si viene RFC del PDF, pre-llenar
+    if (d.rfc) {
+      const rfcField = document.getElementById('rfc');
+      if (rfcField && !rfcField.value) rfcField.value = d.rfc;
+    }
+
+    // ── Cargar cuentas ──
+    document.getElementById('cuentas-container').innerHTML = '';
+    cuentaCount = 0;
+    (d.cuentas || []).forEach(cu => {
+      agregarCuenta();
+      const n = cuentaCount;
+      document.getElementById(`c${n}_tipo`).value      = cu.tipo_credito  || 'OTRO';
+      document.getElementById(`c${n}_otorgante`).value = cu.otorgante     || 'OTRO';
+      document.getElementById(`c${n}_estado`).value    = cu.estado        || 'ABIERTA';
+      document.getElementById(`c${n}_apertura`).value  = cu.fecha_apertura ? _fmtFecha(cu.fecha_apertura) : '';
+      document.getElementById(`c${n}_maximo`).value    = cu.credito_maximo || 0;
+      document.getElementById(`c${n}_saldo`).value     = cu.saldo_actual   || 0;
+      document.getElementById(`c${n}_puntuales`).value = cu.pagos_puntuales || 0;
+      document.getElementById(`c${n}_atrasados`).value = cu.pagos_atrasados || 0;
+    });
+
+    const nombre = d.nombre ? ` — ${d.nombre}` : '';
+    status.textContent = `✅ PDF cargado${nombre} (${d.cuentas_abiertas} abiertas, ${d.cuentas_cerradas} cerradas)`;
+    status.style.color = '#34a853';
+
+  } catch (e) {
+    status.textContent = `❌ Error: ${e.message}`;
+    status.style.color = '#ea4335';
+  }
+  // Limpiar el input para permitir reseleccionar el mismo archivo
+  input.value = '';
+}
+
+function _fmtFecha(s) {
+  // Convierte "15-Ene-2025" o similares a "2025-01-15" para input date
+  if (!s) return '';
+  const meses = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12,
+                 Ene:1,Abr:4,Ago:8};
+  const m = s.match(/(\d{2})-([A-Za-z]{3})-(\d{4})/);
+  if (m) {
+    const mes = String(meses[m[2]] || 1).padStart(2,'0');
+    return `${m[3]}-${mes}-${m[1]}`;
+  }
+  return s;
 }
 
 // Selector de demos en el header
@@ -1269,6 +1541,8 @@ document.querySelector('.header').insertAdjacentHTML('beforeend', `
       <option value="sin_capacidad">❌ Sin capacidad de pago — María</option>
       <option value="decil_bajo">⚠️ Decil bajo ML — Rafael</option>
       <option value="buro_vacio">⚠️ Reporte buró vacío — Ana</option>
+      <option value="thin_file">🔔 Expediente delgado → VALIDACION — Alejandra</option>
+      <option value="umbral_40">✅ Perfil limpio umbral 40% — Patricia</option>
     </select>
     <button onclick="cargarDemo()" style="padding:8px 16px;background:#34a853;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">📋 Cargar Demo</button>
   </div>

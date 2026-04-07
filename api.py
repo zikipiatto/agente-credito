@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from modelos import SolicitudCompleta
 from agentes import analizar
+from parsear_buro import parsear_pdf_buro
 from datetime import datetime
+from pydantic import BaseModel as PydanticBaseModel
 
 app = FastAPI(
     title="Motor de Decisión de Crédito — SOFIPO",
@@ -27,6 +29,24 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+@app.post("/parsear-buro")
+async def parsear_buro_endpoint(archivo: UploadFile = File(...)):
+    """
+    Recibe un PDF de Buró de Crédito y devuelve los datos extraídos
+    listos para pre-llenar el formulario de la solicitud.
+    """
+    if not archivo.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
+    try:
+        contenido = await archivo.read()
+        datos = parsear_pdf_buro(contenido)
+        # Quitar el texto raw antes de devolver (puede ser muy grande)
+        datos.pop("_texto_raw", None)
+        return {"status": "ok", "datos": datos}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al parsear PDF: {e}")
+
 
 @app.post("/analizar")
 def analizar_solicitud(solicitud: SolicitudCompleta):
@@ -53,16 +73,20 @@ def analizar_solicitud(solicitud: SolicitudCompleta):
             },
 
             # ── Resultado Modelo ML ──
-            "modelo_ml": {
-                "disponible":        solicitud.modelo_ml is not None,
-                "valor_decil":       solicitud.modelo_ml.valor_decil       if solicitud.modelo_ml else None,
-                "nivel_riesgo":      solicitud.modelo_ml.nivel_riesgo      if solicitud.modelo_ml else None,
-                "decision_ml":       solicitud.modelo_ml.decision_ml       if solicitud.modelo_ml else None,
-                "capacidad_pago_ml": solicitud.modelo_ml.capacidad_pago_ml if solicitud.modelo_ml else None,
-                "fico_score":        solicitud.modelo_ml.fico_score        if solicitud.modelo_ml else None,
-                "score_no_hit":      solicitud.modelo_ml.score_no_hit      if solicitud.modelo_ml else None,
-                "va_no_hi":          solicitud.modelo_ml.va_no_hi          if solicitud.modelo_ml else None,
-            },
+            # Leemos desde resultado["solicitud"]["modelo_ml"] porque el agente ML
+            # inyecta el decil ahí durante el pipeline de LangGraph.
+            # solicitud.modelo_ml (el objeto Pydantic original) siempre es None
+            # porque el frontend ya no envía esos campos.
+            "modelo_ml": (lambda ml: {
+                "disponible":        ml is not None,
+                "valor_decil":       ml.get("valor_decil")       if ml else None,
+                "nivel_riesgo":      ml.get("nivel_riesgo")      if ml else None,
+                "decision_ml":       ml.get("decision_ml")       if ml else None,
+                "capacidad_pago_ml": ml.get("capacidad_pago_ml") if ml else None,
+                "fico_score":        ml.get("fico_score")        if ml else None,
+                "score_no_hit":      ml.get("score_no_hit")      if ml else None,
+                "va_no_hi":          ml.get("va_no_hi")          if ml else None,
+            })(resultado["solicitud"].get("modelo_ml")),
 
             # ── Resultado KYC ──
             "kyc": {
@@ -77,8 +101,13 @@ def analizar_solicitud(solicitud: SolicitudCompleta):
                 "ingreso_mensual": solicitud.finanzas.total_ingresos,
                 "egreso_mensual": solicitud.finanzas.total_egresos,
                 "ingreso_neto": resultado["resultado_financiero"]["ingreso_neto"],
+                "pago_buro": resultado["resultado_financiero"]["pago_buro"],
+                "total_compromisos": resultado["resultado_financiero"]["total_compromisos"],
                 "cuota_sobre_ingreso_pct": resultado["resultado_financiero"]["ratio_cuota_ingreso"],
                 "capacidad_pago": resultado["resultado_financiero"]["capacidad_pago"],
+                "monto_solicitado": resultado["resultado_financiero"]["monto_solicitado"],
+                "monto_aprobado": resultado["resultado_financiero"]["monto_aprobado"],
+                "monto_reducido": resultado["resultado_financiero"]["monto_reducido"],
                 "alertas": resultado["resultado_financiero"]["alertas"],
             },
 
@@ -124,6 +153,18 @@ def analizar_solicitud(solicitud: SolicitudCompleta):
                 "detalle_cuentas": solicitud.buro.model_dump().get("cuentas", []),
             },
 
+            # ── Condiciones finales del crédito (para el ejecutivo) ──
+            "condiciones_finales": {
+                "monto":      resultado["resultado_financiero"]["monto_aprobado"],
+                "cuota":      resultado["resultado_financiero"]["cuota_final"],
+                "plazo":      solicitud.condiciones.plazo,
+                "tasa":       solicitud.condiciones.tasa,
+                "frecuencia": solicitud.condiciones.frecuencia,
+                "producto":   solicitud.condiciones.producto,
+                "monto_reducido":   resultado["resultado_financiero"]["monto_reducido"],
+                "monto_solicitado": resultado["resultado_financiero"]["monto_solicitado"],
+            },
+
             # ── Decisión final ──
             "decision": {
                 "resultado":              resultado["decision_final"]["decision"],
@@ -137,9 +178,48 @@ def analizar_solicitud(solicitud: SolicitudCompleta):
                 "recomendacion_ejecutivo": resultado["decision_final"].get("recomendacion_ejecutivo"),
             },
 
+            # ── Análisis narrativo completo de buró (lector_buro qwen2.5:14b) ──
+            "analisis_buro_completo": resultado.get("analisis_buro_completo", ""),
+
+            # ── Deliberación IA (síntesis analista senior deepseek-r1:8b) ──
+            "deliberacion_ia": resultado.get("deliberacion_ia", ""),
+
+            # ── Análisis del equipo especializado ──
+            "analisis_equipo": {
+                "riesgo_buro":       resultado.get("analisis_riesgo_buro", ""),
+                "perfil_negocio":    resultado.get("analisis_perfil_negocio", ""),
+                "alertas":           resultado.get("analisis_alertas", ""),
+                "patrones":          resultado.get("patrones_historicos", ""),
+            },
+
             # ── Expediente texto (para imprimir o mostrar al ejecutivo) ──
             "expediente_texto": resultado["expediente"],
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FeedbackAnalista(PydanticBaseModel):
+    folio: str
+    decision_analista: str   # APROBADO, VALIDACION, ESCALAR_EJECUTIVO, RECHAZADO
+    comentario: str
+
+@app.post("/feedback")
+def registrar_feedback(feedback: FeedbackAnalista):
+    """Registra la decisión y comentario del analista de mesa de crédito."""
+    try:
+        from base_datos import registrar_feedback as _reg
+        _reg(feedback.folio, feedback.decision_analista, feedback.comentario)
+        return {"status": "ok", "mensaje": "Feedback registrado correctamente"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/casos")
+def listar_casos():
+    """Lista los casos analizados con su feedback."""
+    try:
+        from base_datos import listar_casos as _listar
+        return {"status": "ok", "casos": _listar()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
