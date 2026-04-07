@@ -17,6 +17,17 @@ auditoria.jsonl
 *.jsonl
 *.log
 
+# Bases de datos
+*.db
+
+# Datos y resultados grandes
+base_motor_decision_crediticia_2024_2025*.csv
+resultados_*.csv
+resultados_*.json
+
+# Artefactos de prueba
+.deepeval/
+
 # Variables de entorno
 .env
 .env.*
