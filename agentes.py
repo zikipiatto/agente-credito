@@ -26,11 +26,11 @@ except Exception as _db_e:
     print(f"[AVISO] Base de datos no disponible: {_db_e}")
 
 # ── Modelos locales ──────────────────────────────────────────────────────────
-# qwen2.5:14b  — análisis estructurado, JSON, narrativa (mejor capacidad general)
-# deepseek-r1:8b — deliberación independiente con razonamiento encadenado visible
+# qwen2.5:14b   — análisis estructurado, JSON, narrativa (mejor capacidad general)
+# gemma4:e4b    — deliberación con thinking mode integrado (reemplaza deepseek-r1:8b)
 # Ambos corren 100% local en Apple Silicon via Ollama. Sin conexión a internet.
-llm          = OllamaLLM(model="qwen2.5:14b",   temperature=0.1)
-llm_razonador = OllamaLLM(model="deepseek-r1:8b", temperature=0.2)
+llm          = OllamaLLM(model="qwen2.5:14b", temperature=0.1)
+llm_razonador = OllamaLLM(model="gemma4:e4b", temperature=1.0, top_p=0.95)
 
 def _parsear_score_buro(score_raw) -> tuple:
     """
@@ -100,7 +100,7 @@ class EstadoSolicitud(TypedDict):
     resultado_buro: dict
     analisis_buro: dict
     analisis_buro_completo: str  # narrativa completa del lector de buró (qwen2.5:14b)
-    deliberacion_ia: str         # análisis libre del agente deliberador (deepseek-r1:8b)
+    deliberacion_ia: str         # análisis libre del agente deliberador (gemma4:e4b)
     decision_final: dict
     expediente: str
     analisis_riesgo_buro: str
@@ -920,8 +920,11 @@ SCORE CUANTITATIVO: {score_cuant}/10
 
 
 def _limpiar_deliberacion(texto: str) -> str:
-    """Limpia la respuesta del deliberador: elimina bloques <think> de DeepSeek R1."""
+    """Limpia la respuesta del deliberador: elimina bloques de razonamiento interno.
+    Soporta DeepSeek R1 (<think>...</think>) y Gemma 4 (<|think|>...<|/think|>).
+    """
     texto = re.sub(r'<think>[\s\S]*?</think>', '', texto)
+    texto = re.sub(r'<\|think\|>[\s\S]*?<\|/think\|>', '', texto)
     return texto.strip()
 
 
